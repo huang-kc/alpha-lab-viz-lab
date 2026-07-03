@@ -41,7 +41,7 @@
 <div class="hint">
   <b>🕸️ 全 55 家 (registry) · KG 关系图</b><br/>
   <b>节点</b>: 大小 = log(市值) · 颜色 = sector · 位置 = L→R 供应链层<br/>
-  <b>边</b>: 🟢供货 🟠依赖 🟢受益 🔴受损 🟡投资 🔵拉需求 🟣竞争 🩷替代 (反向对已合并)<br/>
+  <b>边</b>: 🟢供货 🟠依赖 🟢受益 🔴受损 🟡投资 🔵拉需求 🩷替代 (反向对已合并 · 竞争已去掉见 sector 颜色)<br/>
   <b>边样式</b>: 粗实线 = SEC 10-K 验证 · 细虚线 = KOL 说的<br/>
   <b>hover</b>: 节点看 facts, 边看 evidence 原文
 </div>
@@ -176,7 +176,8 @@ const fallbackEdges = [
   { from: 'MU',    to: 'NVDA',  relation: 'SUPPLIES', source_tier: 'sec_10k' },
 ];
 
-// ─── Relation style: 合并后 8 类 (24 原始 → 12 语义, 前端画 8 类) ─────
+// ─── Relation style: 合并后 7 类 (24 原始 → 11 语义, 前端画 7 类) ─────
+// COMPETES_WITH dropped 2026-07-03: 85% 冗余 (与 yfinance industry 分类重叠)
 const REL_STYLE = {
   SUPPLIES:         { color: '#22c55e', label: '供货',   arrows: true  },  // + CUSTOMER_OF (反向合并)
   DEPENDS_ON:       { color: '#f97316', label: '依赖',   arrows: true  },  // + BOTTLENECK_FOR + CAPACITY_CONSTRAINS
@@ -184,7 +185,6 @@ const REL_STYLE = {
   HURT_BY:          { color: '#dc2626', label: '受损',   arrows: true  },  // + RISK_TO (反向合并)
   INVESTS_IN:       { color: '#eab308', label: '投资',   arrows: true  },
   DRIVES_DEMAND_FOR:{ color: '#0ea5e9', label: '拉需求', arrows: true  },
-  COMPETES_WITH:    { color: '#a855f7', label: '竞争',   arrows: false },
   REPLACES:         { color: '#ec4899', label: '替代',   arrows: true  },
   MENTIONS:         { color: '#64748b', label: '提及',   arrows: false },
 };
@@ -509,7 +509,7 @@ async function loadFacts() {
 async function loadKgEdges() {
   // 拉全部会被合并/反转的关系. 白名单 12 类 (SUPPLIES/CUSTOMER_OF pair, DEPENDS_ON+BOTTLENECK+CAPACITY,
   // BENEFITS_FROM+CATALYST, HURT_BY+RISK, INVESTS_IN, DRIVES_DEMAND_FOR, COMPETES_WITH, REPLACES)
-  const relations = 'SUPPLIES,CUSTOMER_OF,DEPENDS_ON,BOTTLENECK_FOR,CAPACITY_CONSTRAINS,INVESTS_IN,BENEFITS_FROM,CATALYST_FOR,HURT_BY,RISK_TO,DRIVES_DEMAND_FOR,COMPETES_WITH,REPLACES';
+  const relations = 'SUPPLIES,CUSTOMER_OF,DEPENDS_ON,BOTTLENECK_FOR,CAPACITY_CONSTRAINS,INVESTS_IN,BENEFITS_FROM,CATALYST_FOR,HURT_BY,RISK_TO,DRIVES_DEMAND_FOR,REPLACES';
   try {
     const res = await fetch(`${API}/api/v1/kg/graph?relation_types=${relations}&source_tiers=sec_10k,kol&min_confidence=0.6`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
