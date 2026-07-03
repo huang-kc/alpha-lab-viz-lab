@@ -41,7 +41,7 @@
 <div class="hint">
   <b>🕸️ 全 55 家 (registry) · KG 关系图</b><br/>
   <b>节点</b>: 大小 = log(市值) · 颜色 = sector · 位置 = L→R 供应链层<br/>
-  <b>边</b>: 🟢供货 🟠依赖 🟢受益 🔴受损 🟡投资 🔵拉需求 🩷替代 (反向对已合并 · 竞争已去掉见 sector 颜色)<br/>
+  <b>边</b>: 🟢<b>利好</b> (A→B: A 好, B 好) 🔴<b>利空</b> (A→B: A 好, B 坏) · 12 类原始关系统一为 2 类, 子类见 tooltip<br/>
   <b>边样式</b>: 粗实线 = SEC 10-K 验证 · 细虚线 = KOL 说的<br/>
   <b>hover</b>: 节点看 facts, 边看 evidence 原文
 </div>
@@ -176,27 +176,32 @@ const fallbackEdges = [
   { from: 'MU',    to: 'NVDA',  relation: 'SUPPLIES', source_tier: 'sec_10k' },
 ];
 
-// ─── Relation style: 合并后 7 类 (24 原始 → 11 语义, 前端画 7 类) ─────
-// COMPETES_WITH dropped 2026-07-03: 85% 冗余 (与 yfinance industry 分类重叠)
+// ─── Relation style: 2 类 canonical (A→B: 因→果) ─────────────────
+// 正向 POSITIVE: A 好 → B 好  (arrow 从利好源 指向 受益方)
+// 负向 NEGATIVE: A 好 → B 坏  (arrow 从威胁源 指向 受损方)
 const REL_STYLE = {
-  SUPPLIES:         { color: '#22c55e', label: '供货',   arrows: true  },  // + CUSTOMER_OF (反向合并)
-  DEPENDS_ON:       { color: '#f97316', label: '依赖',   arrows: true  },  // + BOTTLENECK_FOR + CAPACITY_CONSTRAINS
-  BENEFITS_FROM:    { color: '#84cc16', label: '受益',   arrows: true  },  // + CATALYST_FOR (反向合并)
-  HURT_BY:          { color: '#dc2626', label: '受损',   arrows: true  },  // + RISK_TO (反向合并)
-  INVESTS_IN:       { color: '#eab308', label: '投资',   arrows: true  },
-  DRIVES_DEMAND_FOR:{ color: '#0ea5e9', label: '拉需求', arrows: true  },
-  REPLACES:         { color: '#ec4899', label: '替代',   arrows: true  },
-  MENTIONS:         { color: '#64748b', label: '提及',   arrows: false },
+  POSITIVE: { color: '#22c55e', label: '利好', arrows: true },
+  NEGATIVE: { color: '#dc2626', label: '利空', arrows: true },
+  MENTIONS: { color: '#64748b', label: '提及', arrows: false },
 };
 
-// 反向关系表: raw → { rel: 目标, flip: 是否翻转端点 }
-// A REL B 若定义为反向, 则等价于 B REL' A (端点翻转 + 关系名换)
+// Raw relation → { canonical, flip, sub } —— 12 raw → 2 canonical, unified 方向 "因→果"
+// flip=true 表示原始 (A, B) 需要变成 (B, A) 才符合 "因→果" 方向
 const REL_FLIP = {
-  CUSTOMER_OF:         { rel: 'SUPPLIES',      flip: true  },   // A 买 B → B 供 A
-  BOTTLENECK_FOR:      { rel: 'DEPENDS_ON',    flip: true  },   // A 卡 B → B 依赖 A
-  CAPACITY_CONSTRAINS: { rel: 'DEPENDS_ON',    flip: true  },   // A 限 B → B 依赖 A
-  CATALYST_FOR:        { rel: 'BENEFITS_FROM', flip: true  },   // A 催化 B → B 受益 A
-  RISK_TO:             { rel: 'HURT_BY',       flip: true  },   // A 是 B 的风险 → B 会被 A 伤
+  // 正向: A → B (A 好 B 好)
+  SUPPLIES:            { canonical: 'POSITIVE', flip: false, sub: '供货'   },   // A 供 B (A 好, B 有货)
+  CUSTOMER_OF:         { canonical: 'POSITIVE', flip: true,  sub: '供货'   },   // A 买 B → B 卖 A → B 好 A 得货
+  DEPENDS_ON:          { canonical: 'POSITIVE', flip: true,  sub: '依赖'   },   // A 靠 B → B 好 A 才能活
+  BOTTLENECK_FOR:      { canonical: 'POSITIVE', flip: false, sub: '解卡'   },   // A 卡 B (A 松了 B 才能跑)
+  CAPACITY_CONSTRAINS: { canonical: 'POSITIVE', flip: false, sub: '解卡'   },
+  BENEFITS_FROM:       { canonical: 'POSITIVE', flip: true,  sub: '受益源' },   // A 受益 B → B 好 A 受益
+  CATALYST_FOR:        { canonical: 'POSITIVE', flip: false, sub: '催化'   },   // A 催化 B (A 好 B 加速)
+  DRIVES_DEMAND_FOR:   { canonical: 'POSITIVE', flip: false, sub: '拉需求' },   // A 拉 B 需求 (A 好 B 卖爆)
+  INVESTS_IN:          { canonical: 'POSITIVE', flip: false, sub: '投资'   },   // A 投 B (A 好 B 得钱)
+  // 负向: A → B (A 好 B 坏)
+  REPLACES:            { canonical: 'NEGATIVE', flip: false, sub: '替代'   },   // A 替 B (A 好 B 丢份额)
+  HURT_BY:             { canonical: 'NEGATIVE', flip: true,  sub: '碾压'   },   // A 被 B 伤 → B 好 A 惨
+  RISK_TO:             { canonical: 'NEGATIVE', flip: false, sub: '威胁'   },   // A 威胁 B (A 好 B 完)
 };
 
 // ─── State ─────────────────────────────────────────────────────────
@@ -302,7 +307,8 @@ function makeEdgeDef(e, i) {
   const srcTag = e._sources && e._sources.length > 1
     ? `${e._sources.length}源合并 (${e._sources.join('+')})`
     : (isSec ? 'SEC 10-K 验证 ✓' : 'KOL 说');
-  const flipTag = e._flipped_from ? ` [由 ${e._flipped_from} 反转合并]` : '';
+  const flipTag = e._raw_rel && e._raw_rel !== e.relation
+    ? `\n子类: ${e._sub} · 原始关系: ${e._raw_rel}` : '';
   return {
     id: `e${i}`,
     from: e.from_node,
@@ -515,21 +521,24 @@ async function loadKgEdges() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const j = await res.json();
 
-    // Step 1: ticker → nodeId + 反向关系归一 (REL_FLIP 表)
+    // Step 1: 12 raw → 2 canonical (POSITIVE / NEGATIVE), 统一方向 因→果
     const mapped = (j.edges || [])
       .map(e => {
-        let from = e.from, to = e.to, rel = e.relation;
-        const flip = REL_FLIP[rel];
-        let flippedFrom = null;
-        if (flip) {
-          flippedFrom = rel;              // 记录原关系名 (tooltip 用)
-          rel = flip.rel;
-          if (flip.flip) [from, to] = [to, from];
-        }
+        let from = e.from, to = e.to;
+        const meta = REL_FLIP[e.relation];
+        if (!meta) return null;  // 未在 whitelist 的 skip
+        if (meta.flip) [from, to] = [to, from];
         const from_node = tickerToNodeId[from];
         const to_node = tickerToNodeId[to];
         if (!from_node || !to_node) return null;
-        return { ...e, from_node, to_node, relation: rel, _flipped_from: flippedFrom };
+        return {
+          ...e,
+          from_node,
+          to_node,
+          relation: meta.canonical,   // POSITIVE / NEGATIVE
+          _raw_rel: e.relation,        // 原始 (tooltip)
+          _sub: meta.sub,               // 子类型 (tooltip)
+        };
       })
       .filter(Boolean);
 
