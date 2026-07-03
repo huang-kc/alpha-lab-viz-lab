@@ -41,7 +41,7 @@
 <div class="hint">
   <b>🕸️ 全 55 家 (registry) · KG 关系图</b><br/>
   <b>节点</b>: 大小 = log(市值) · 颜色 = sector · 位置 = L→R 供应链层<br/>
-  <b>边颜色</b>: 🟢供 🔵客 🟠依赖 🔴卡点 🟡投资 🟣竞争<br/>
+  <b>边颜色</b>: 🟢供货 (A→B: A 给 B 供货, 已合并 CUSTOMER_OF) 🟠依赖 🔴卡点 🟡投资 🟣竞争<br/>
   <b>边样式</b>: 粗实线 = SEC 10-K 验证 · 细虚线 = KOL 说的<br/>
   <b>hover</b>: 节点看 facts, 边看 evidence 原文
 </div>
@@ -290,12 +290,16 @@ let edgeSourceFilter = 'all';  // all / sec_10k / kol
 function makeEdgeDef(e, i) {
   const style = REL_STYLE[e.relation] || REL_STYLE.MENTIONS;
   const isSec = e.source_tier === 'sec_10k';
+  const srcTag = e._sources && e._sources.length > 1
+    ? `${e._sources.length}源合并 (${e._sources.join('+')})`
+    : (isSec ? 'SEC 10-K 验证 ✓' : 'KOL 说');
+  const flipTag = e._flipped_from_customer_of ? ' [由 CUSTOMER_OF 反转]' : '';
   return {
     id: `e${i}`,
     from: e.from_node,
     to: e.to_node,
-    title: `${e.from_node} -${style.label}-> ${e.to_node}
-Source: ${isSec ? 'SEC 10-K 验证 ✓' : 'KOL 说'} · conf ${e.confidence?.toFixed(2) || '?'}
+    title: `${e.from_node} -${style.label}-> ${e.to_node}${flipTag}
+Source: ${srcTag} · conf ${e.confidence?.toFixed(2) || '?'}
 ${e.evidence ? '\n"' + e.evidence.slice(0, 200) + (e.evidence.length > 200 ? '..."' : '"') : ''}`,
     arrows: style.arrows
       ? { to: { enabled: true, scaleFactor: 0.55 } }
@@ -499,27 +503,54 @@ async function loadKgEdges() {
     const res = await fetch(`${API}/api/v1/kg/graph?relation_types=${relations}&source_tiers=sec_10k,kol&min_confidence=0.6`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const j = await res.json();
-    // API 里 from/to 是 ticker; 转成 node id
-    allEdgeData = (j.edges || [])
+
+    // Step 1: ticker → nodeId + CUSTOMER_OF → SUPPLIES 反转
+    // A CUSTOMER_OF B (A 买 B 的东西) 等价于 B SUPPLIES A
+    const mapped = (j.edges || [])
       .map(e => {
-        const from_node = tickerToNodeId[e.from];
-        const to_node = tickerToNodeId[e.to];
-        if (!from_node || !to_node) return null;  // 两端都必须在 55 家里
-        return { ...e, from_node, to_node };
+        let from = e.from, to = e.to, rel = e.relation;
+        if (rel === 'CUSTOMER_OF') {
+          [from, to] = [to, from];   // 反转端点
+          rel = 'SUPPLIES';
+          e = { ...e, _flipped_from_customer_of: true };
+        }
+        const from_node = tickerToNodeId[from];
+        const to_node = tickerToNodeId[to];
+        if (!from_node || !to_node) return null;
+        return { ...e, from_node, to_node, relation: rel };
       })
       .filter(Boolean);
+
+    // Step 2: 合并同 (from, to, relation) — SEC 优先, 高 conf 优先, 记录合并数
+    const merged = new Map();
+    for (const e of mapped) {
+      const key = `${e.from_node}|${e.relation}|${e.to_node}`;
+      const prev = merged.get(key);
+      if (!prev) {
+        merged.set(key, { ...e, _sources: [e.source_tier] });
+      } else {
+        prev._sources.push(e.source_tier);
+        // 若新的是 sec_10k 且 prev 不是, 用新的; 或新的 conf 更高
+        const newIsSec = e.source_tier === 'sec_10k';
+        const prevIsSec = prev.source_tier === 'sec_10k';
+        if ((newIsSec && !prevIsSec) || (newIsSec === prevIsSec && (e.confidence || 0) > (prev.confidence || 0))) {
+          merged.set(key, { ...e, _sources: prev._sources });
+        }
+      }
+    }
+    allEdgeData = Array.from(merged.values());
     rebuildEdges();
     return { total: allEdgeData.length,
              sec: allEdgeData.filter(e => e.source_tier === 'sec_10k').length,
              kol: allEdgeData.filter(e => e.source_tier === 'kol').length };
   } catch (e) {
-    // Fallback: 用硬编码
     allEdgeData = fallbackEdges.map(fe => ({
       ...fe,
       from_node: tickerToNodeId[fe.from] || fe.from,
       to_node: tickerToNodeId[fe.to] || fe.to,
       confidence: 0.9,
       evidence: '(fallback)',
+      _sources: [fe.source_tier],
     }));
     rebuildEdges();
     return { error: e.message, fallback: allEdgeData.length };
