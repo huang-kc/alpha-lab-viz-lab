@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Alpha Lab · Investment Graph POC — 7 种视觉风格</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "SF Pro Display", BlinkMacSystemFont, sans-serif;
+    background: #0a0e1a;
+    color: #e5e7eb;
+    min-height: 100vh;
+    padding: 40px 60px 60px;
+  }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 8px;
+    background: linear-gradient(90deg, #60a5fa, #f97316);
+    -webkit-background-clip: text;
+    color: transparent;
+    font-weight: 700;
+  }
+  .sub {
+    color: #94a3b8;
+    margin: 0 0 40px;
+    font-size: 14px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 20px;
+  }
+  .card {
+    background: linear-gradient(180deg, #1e293b 0%, #131a2b 100%);
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 24px;
+    text-decoration: none;
+    color: #e5e7eb;
+    transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card:hover {
+    border-color: #60a5fa;
+    transform: translateY(-3px);
+    box-shadow: 0 20px 40px -12px rgba(96, 165, 250, 0.3);
+  }
+  .card .badge {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    background: rgba(96, 165, 250, 0.15);
+    color: #60a5fa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+  .card .badge.recommend {
+    background: rgba(249, 115, 22, 0.15);
+    color: #f97316;
+  }
+  .card .icon {
+    font-size: 32px;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .card h2 {
+    font-size: 18px;
+    margin: 0;
+    color: #f1f5f9;
+    font-weight: 600;
+  }
+  .card .tag {
+    font-family: "SF Mono", monospace;
+    font-size: 11px;
+    color: #64748b;
+  }
+  .card p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #cbd5e1;
+    flex: 1;
+  }
+  .card .best {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid #334155;
+    font-size: 12px;
+    color: #94a3b8;
+  }
+  .card .best b { color: #f1f5f9; }
+  footer {
+    margin-top: 60px;
+    padding-top: 30px;
+    border-top: 1px solid #1e293b;
+    font-size: 12px;
+    color: #64748b;
+  }
+  footer code { background: #1e293b; padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", monospace; color: #cbd5e1; }
+</style>
+</head>
+<body>
+
+<h1>🔬 Alpha Lab · Investment Graph POC</h1>
+<p class="sub">同一份 mock 数据 (16 家半导体/AI 公司 + 26 条关系) 在 7 种前端库里的不同呈现. 挑一个你最喜欢的.</p>
+
+<div class="grid">
+
+  <a class="card" href="investment-graph-poc/index.html">
+    <span class="badge">已实现</span>
+    <div class="icon">🎈</div>
+    <h2>force-graph <span class="tag">(current)</span></h2>
+    <p>弹簧漂浮圆球 + Canvas + d3-force 物理模拟. 拖一个球带动邻居, 有惯性有阻尼有碰撞体积. 视觉最"活".</p>
+    <div class="best"><b>擅长</b>: 中小图 (&lt; 500 节点) · 物理感 · 快速原型</div>
+  </a>
+
+  <a class="card" href="investment-graph-cytoscape/index.html">
+    <span class="badge recommend">强推</span>
+    <div class="icon">🧠</div>
+    <h2>Cytoscape.js <span class="tag">图算法</span></h2>
+    <p>带大脑的图库. 一行代码就能拿到 "TSM 上游 3 跳产业链" (BFS). 内置 20+ 布局 (环形/树/放射) + 最短路径 + PageRank.</p>
+    <div class="best"><b>擅长</b>: 需要"点一个球高亮整条产业链" 这类图分析</div>
+  </a>
+
+  <a class="card" href="investment-graph-d3-pack/index.html">
+    <span class="badge recommend">强推</span>
+    <div class="icon">🎯</div>
+    <h2>D3 Circle Packing <span class="tag">层级套娃</span></h2>
+    <p>母球套子球. 半导体产业 → AI 芯片链 / HBM 存储 / CoWoS → 具体公司. 点大圆下钻放大, 视觉最抓人.</p>
+    <div class="best"><b>擅长</b>: 表达"归属层级" · 上台演示 (PPT 直接用截图)</div>
+  </a>
+
+  <a class="card" href="investment-graph-sigma/index.html">
+    <div class="icon">📐</div>
+    <h2>Sigma.js <span class="tag">WebGL</span></h2>
+    <p>WebGL 硬件加速. 学术论文常见风格, 平面 2D, 节点带 label. 5000 节点也 60fps 流畅.</p>
+    <div class="best"><b>擅长</b>: 大规模 (&gt; 1000 节点) · 学术/工业感</div>
+  </a>
+
+  <a class="card" href="investment-graph-antv-g6/index.html">
+    <div class="icon">🏛️</div>
+    <h2>AntV G6 <span class="tag">阿里出品</span></h2>
+    <p>阿里数据可视化团队作品. 中文文档全, 视觉专为**金融/商业中台**设计. 边有贝塞尔曲线 + 箭头, 节点带 badge 多状态.</p>
+    <div class="best"><b>擅长</b>: 中文项目 · 需要商业感 · 内置金融组件</div>
+  </a>
+
+  <a class="card" href="investment-graph-reactflow/index.html">
+    <div class="icon">💳</div>
+    <h2>React Flow <span class="tag">卡片式</span></h2>
+    <p>每个节点是一张**卡片** (可以是 React 组件). 节点里嵌 ticker + mock 股价 + 迷你 K 线 + 涨跌色. 从"圆球" 升级到 "股价 dashboard".</p>
+    <div class="best"><b>擅长</b>: 想让节点自身携带丰富信息</div>
+  </a>
+
+  <a class="card" href="investment-graph-visnetwork/index.html">
+    <div class="icon">🕸️</div>
+    <h2>vis-network <span class="tag">经典可靠</span></h2>
+    <p>经典网络图库, API 直白, 边可以是曲线, 支持层级布局 (树状). 配置直接一个大 JSON.</p>
+    <div class="best"><b>擅长</b>: 快速搭 MVP · 配置化 · 稳定不折腾</div>
+  </a>
+
+</div>
+
+<footer>
+  <div>🔬 数据全 mock, 半导体 / AI 产业链: <code>NVDA · AMD · AVGO · TSM · Samsung · SK Hynix · MU · ASX · Amkor · META · GOOGL · MSFT · ORCL · ASML · AMAT · LRCX</code></div>
+  <div style="margin-top:10px">开发路径: <code>~/Desktop/vscode/frontend-design/web/investment-graph-*/index.html</code></div>
+</footer>
+
+</body>
+</html>

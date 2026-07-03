@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>D3 Circle Packing · Investment Graph</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, sans-serif; background: #0a0e1a; color: #e5e7eb; overflow: hidden; }
+  #chart { position: absolute; top: 60px; left: 0; right: 0; bottom: 0; }
+  #controls { position: absolute; top: 0; left: 0; right: 0; height: 60px; background: rgba(15,23,42,0.95); border-bottom: 1px solid #1e293b; display: flex; align-items: center; padding: 0 24px; gap: 10px; z-index: 10; }
+  h1 { font-size: 15px; margin: 0 20px 0 0; color: #f1f5f9; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: #f97316; box-shadow: 0 0 12px rgba(249, 115, 22, 0.6); }
+  a.back { margin-left: auto; color: #94a3b8; font-size: 12px; text-decoration: none; }
+  a.back:hover { color: #60a5fa; }
+  .hint { position: absolute; bottom: 20px; left: 20px; background: rgba(15,23,42,0.9); padding: 14px 18px; border-radius: 10px; font-size: 12.5px; border: 1px solid #1e293b; z-index: 5; max-width: 320px; }
+  .hint b { color: #f97316; }
+  #breadcrumb { color: #cbd5e1; font-size: 13px; }
+  #breadcrumb .sep { color: #475569; margin: 0 6px; }
+  #breadcrumb .path-item { cursor: pointer; }
+  #breadcrumb .path-item:hover { color: #f97316; }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <h1><span class="dot"></span>D3 Circle Packing · 层级下钻</h1>
+  <div id="breadcrumb"><span class="path-item" data-path="root">半导体 AI 产业</span></div>
+  <a class="back" href="../investment-graph-index.html">← 返回门户</a>
+</div>
+
+<svg id="chart"></svg>
+
+<div class="hint">
+  <b>🎯 D3 Circle Packing 特色</b><br/>
+  <b>点大圆</b> → 放大进入 (下钻子层)<br/>
+  <b>点空白</b> → 缩回上层<br/>
+  <b>球大小</b> = 层级内累计市值<br/><br/>
+  产业链有天然层级归属, 不需要连线也一目了然.
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+
+<script>
+const SECTOR = {
+  chip_design: { color: '#60a5fa', label: '芯片设计' },
+  foundry:     { color: '#a855f7', label: '代工' },
+  memory:      { color: '#f97316', label: '存储' },
+  packaging:   { color: '#22c55e', label: '封测' },
+  cloud_ai:    { color: '#ef4444', label: '云端 AI' },
+  equipment:   { color: '#9ca3af', label: '设备/材料' },
+};
+
+// 层级数据 — 半导体 AI > 3 大链 > sector > 公司
+const data = {
+  name: '半导体 AI 产业',
+  children: [
+    {
+      name: 'AI 芯片链', code: 'ai_chip',
+      children: [
+        { name: '设备/材料', code: 'equipment', children: [
+          { name: 'ASML', ticker: 'ASML', value: 300, sector: 'equipment' },
+          { name: 'Applied Materials', ticker: 'AMAT', value: 150, sector: 'equipment' },
+          { name: 'Lam Research', ticker: 'LRCX', value: 100, sector: 'equipment' },
+        ]},
+        { name: '代工', code: 'foundry', children: [
+          { name: 'TSMC', ticker: 'TSM', value: 1050, sector: 'foundry' },
+          { name: 'Samsung', ticker: 'SAMSUNG', value: 380, sector: 'foundry' },
+        ]},
+        { name: '芯片设计', code: 'chip_design', children: [
+          { name: 'NVIDIA', ticker: 'NVDA', value: 3400, sector: 'chip_design' },
+          { name: 'AMD', ticker: 'AMD', value: 260, sector: 'chip_design' },
+          { name: 'Broadcom', ticker: 'AVGO', value: 780, sector: 'chip_design' },
+        ]},
+        { name: '云端 AI (下游)', code: 'cloud_ai', children: [
+          { name: 'Microsoft', ticker: 'MSFT', value: 3200, sector: 'cloud_ai' },
+          { name: 'Alphabet', ticker: 'GOOGL', value: 2000, sector: 'cloud_ai' },
+          { name: 'Meta', ticker: 'META', value: 1500, sector: 'cloud_ai' },
+          { name: 'Oracle', ticker: 'ORCL', value: 480, sector: 'cloud_ai' },
+        ]},
+      ],
+    },
+    {
+      name: 'HBM 存储链', code: 'hbm',
+      children: [
+        { name: '存储厂', code: 'memory', children: [
+          { name: 'SK Hynix', ticker: 'HYNIX', value: 110, sector: 'memory' },
+          { name: 'Micron', ticker: 'MU', value: 130, sector: 'memory' },
+        ]},
+      ],
+    },
+    {
+      name: 'CoWoS 封装链', code: 'cowos',
+      children: [
+        { name: '封测', code: 'packaging', children: [
+          { name: 'ASE Tech', ticker: 'ASX', value: 22, sector: 'packaging' },
+          { name: 'Amkor', ticker: 'AMKR', value: 8, sector: 'packaging' },
+        ]},
+      ],
+    },
+  ],
+};
+
+const width = window.innerWidth;
+const height = window.innerHeight - 60;
+
+const svg = d3.select('#chart')
+  .attr('width', width)
+  .attr('height', height)
+  .attr('viewBox', `-${width / 2} -${height / 2} ${width} ${height}`)
+  .attr('style', `cursor: pointer; background: #0a0e1a; display: block;`);
+
+const root = d3.pack()
+  .size([Math.min(width, height) - 40, Math.min(width, height) - 40])
+  .padding(6)
+  (d3.hierarchy(data)
+     .sum(d => d.value)
+     .sort((a, b) => b.value - a.value));
+
+let focus = root;
+let view;
+
+const chainColors = {
+  ai_chip: '#3b82f6',
+  hbm: '#f97316',
+  cowos: '#22c55e',
+};
+
+const getFillColor = d => {
+  if (!d.parent) return '#1e293b';
+  if (d.children && d.depth === 1) return chainColors[d.data.code] || '#1e293b';
+  if (d.children) return d3.color(chainColors[d.ancestors().find(a => a.depth === 1)?.data.code] || '#1e293b').darker(0.5);
+  return SECTOR[d.data.sector]?.color || '#64748b';
+};
+
+const node = svg.append('g')
+  .selectAll('circle')
+  .data(root.descendants().slice(1))
+  .join('circle')
+    .attr('fill', getFillColor)
+    .attr('fill-opacity', d => d.children ? 0.35 : 0.9)
+    .attr('stroke', d => d.children ? '#f8fafc' : 'transparent')
+    .attr('stroke-width', d => d.children ? 1.5 : 0)
+    .attr('stroke-opacity', d => d.children ? 0.15 : 0)
+    .attr('pointer-events', d => !d.children ? 'none' : null)
+    .on('mouseover', function() { d3.select(this).attr('stroke', '#f97316').attr('stroke-opacity', 1); })
+    .on('mouseout', function() { d3.select(this).attr('stroke', d => d.__data__.children ? '#f8fafc' : 'transparent').attr('stroke-opacity', d => d.__data__.children ? 0.15 : 0); })
+    .on('click', (event, d) => focus !== d && (zoom(event, d), event.stopPropagation()));
+
+const label = svg.append('g')
+  .style('font', '600 11px -apple-system, sans-serif')
+  .attr('pointer-events', 'none')
+  .attr('text-anchor', 'middle')
+  .selectAll('text')
+  .data(root.descendants().slice(1))
+  .join('text')
+    .style('fill-opacity', d => d.parent === root ? 1 : 0)
+    .style('display', d => d.parent === root ? 'inline' : 'none')
+    .style('fill', '#f8fafc')
+    .attr('font-size', d => d.children ? '14px' : '11px')
+    .attr('font-weight', d => d.children ? 700 : 500)
+    .style('text-shadow', '0 1px 4px rgba(0,0,0,0.7)')
+    .text(d => d.data.ticker || d.data.name);
+
+svg.on('click', event => zoom(event, root));
+
+zoomTo([root.x, root.y, root.r * 2]);
+
+function zoomTo(v) {
+  const k = Math.min(width, height) / v[2];
+  view = v;
+  label.attr('transform', d => `translate(${(d.x - v[0]) * k},${(d.y - v[1]) * k})`);
+  node.attr('transform', d => `translate(${(d.x - v[0]) * k},${(d.y - v[1]) * k})`);
+  node.attr('r', d => d.r * k);
+}
+
+function zoom(event, d) {
+  focus = d;
+
+  const transition = svg.transition()
+    .duration(event.altKey ? 3000 : 750)
+    .tween('zoom', () => {
+      const i = d3.interpolateZoom(view, [focus.x, focus.y, focus.r * 2]);
+      return t => zoomTo(i(t));
+    });
+
+  label
+    .filter(function(d) { return d.parent === focus || this.style.display === 'inline'; })
+    .transition(transition)
+      .style('fill-opacity', d => d.parent === focus ? 1 : 0)
+      .on('start', function(d) { if (d.parent === focus) this.style.display = 'inline'; })
+      .on('end', function(d) { if (d.parent !== focus) this.style.display = 'none'; });
+
+  updateBreadcrumb(d);
+}
+
+function updateBreadcrumb(d) {
+  const path = d.ancestors().reverse();
+  const html = path.map((p, i) => `
+    <span class="path-item" data-depth="${i}">${p.data.name}</span>
+    ${i < path.length - 1 ? '<span class="sep">›</span>' : ''}
+  `).join('');
+  document.getElementById('breadcrumb').innerHTML = html;
+  document.querySelectorAll('#breadcrumb .path-item').forEach((el, i) => {
+    el.addEventListener('click', () => zoom({stopPropagation:()=>{}, altKey:false}, path[i]));
+  });
+}
+
+updateBreadcrumb(root);
+</script>
+
+</body>
+</html>

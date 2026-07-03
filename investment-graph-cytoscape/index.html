@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Cytoscape · Investment Graph</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, sans-serif; background: #0a0e1a; color: #e5e7eb; overflow: hidden; }
+  #cy { position: absolute; top: 60px; left: 0; right: 0; bottom: 0; }
+  #controls { position: absolute; top: 0; left: 0; right: 0; height: 60px; background: rgba(15,23,42,0.95); border-bottom: 1px solid #1e293b; display: flex; align-items: center; padding: 0 24px; gap: 10px; z-index: 10; }
+  h1 { font-size: 15px; margin: 0 20px 0 0; color: #f1f5f9; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: #a855f7; box-shadow: 0 0 12px rgba(168, 85, 247, 0.6); }
+  .chip { padding: 6px 14px; border-radius: 20px; background: #1e293b; color: #cbd5e1; cursor: pointer; font-size: 12.5px; border: 1px solid transparent; transition: all 0.15s; }
+  .chip:hover { background: #334155; color: #f1f5f9; }
+  .chip.active { background: #a855f7; color: white; border-color: #c084fc; }
+  a.back { margin-left: auto; color: #94a3b8; font-size: 12px; text-decoration: none; }
+  a.back:hover { color: #60a5fa; }
+  .hint { position: absolute; bottom: 20px; left: 20px; background: rgba(15,23,42,0.9); padding: 14px 18px; border-radius: 10px; font-size: 12.5px; border: 1px solid #1e293b; z-index: 5; max-width: 320px; }
+  .hint b { color: #a855f7; }
+  .hint code { background: #1e293b; padding: 2px 5px; border-radius: 3px; font-family: "SF Mono", monospace; font-size: 11px; color: #f97316; }
+  #detail { position: absolute; bottom: 20px; right: 20px; background: rgba(15,23,42,0.92); padding: 14px 18px; border-radius: 10px; font-size: 12.5px; border: 1px solid #1e293b; max-width: 280px; }
+  #detail h3 { margin: 0 0 8px; font-size: 15px; color: #f1f5f9; }
+  #detail .ticker { color: #a855f7; font-family: "SF Mono", monospace; font-size: 12px; margin-left: 6px; }
+  #detail .row { margin: 4px 0; color: #cbd5e1; }
+  #detail .row b { color: #f1f5f9; }
+  #detail .sub { margin-top: 8px; color: #64748b; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <h1><span class="dot"></span>Cytoscape.js · 图算法遍历</h1>
+  <span class="chip active" data-hop="0">重置</span>
+  <span class="chip" data-hop="1">上游 1 跳</span>
+  <span class="chip" data-hop="2">上游 2 跳</span>
+  <span class="chip" data-hop="3">上游 3 跳</span>
+  <span class="chip" data-hop="down1">下游 1 跳</span>
+  <span class="chip" data-hop="path">最短路径</span>
+  <a class="back" href="../investment-graph-index.html">← 返回门户</a>
+</div>
+
+<div id="cy"></div>
+
+<div class="hint">
+  <b>🧠 Cytoscape 特色</b><br/>
+  点一个节点 → 顶部按钮跑图算法: <code>node.predecessors()</code> 拿全部上游, <code>node.outgoers()</code> 拿下游.
+  <br/><br/>
+  一行代码解决产业链上游 N 跳, 不用自己写 BFS.
+</div>
+
+<div id="detail">
+  <h3>👋 点一个节点</h3>
+  <div class="row">再点顶部按钮跑不同的图算法</div>
+  <div class="sub">默认布局: fCoSE (力导向, 有物理感)</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/layout-base@2.0.1/layout-base.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cose-base@2.2.0/cose-base.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-fcose@2.2.0/cytoscape-fcose.js"></script>
+
+<script>
+const SECTOR = {
+  chip_design: { color: '#60a5fa', label: '芯片设计' },
+  foundry:     { color: '#a855f7', label: '代工' },
+  memory:      { color: '#f97316', label: '存储' },
+  packaging:   { color: '#22c55e', label: '封测' },
+  cloud_ai:    { color: '#ef4444', label: '云端 AI' },
+  equipment:   { color: '#9ca3af', label: '设备/材料' },
+};
+
+const nodes = [
+  { id: 'NVDA', name: 'NVIDIA', mcap: 3400, sector: 'chip_design' },
+  { id: 'AMD', name: 'AMD', mcap: 260, sector: 'chip_design' },
+  { id: 'AVGO', name: 'Broadcom', mcap: 780, sector: 'chip_design' },
+  { id: 'TSM', name: 'TSMC', mcap: 1050, sector: 'foundry' },
+  { id: 'SAMSUNG', name: 'Samsung', mcap: 380, sector: 'foundry' },
+  { id: 'HYNIX', name: 'SK Hynix', mcap: 110, sector: 'memory' },
+  { id: 'MU', name: 'Micron', mcap: 130, sector: 'memory' },
+  { id: 'ASX', name: 'ASE Tech', mcap: 22, sector: 'packaging' },
+  { id: 'AMKR', name: 'Amkor', mcap: 8, sector: 'packaging' },
+  { id: 'META', name: 'Meta', mcap: 1500, sector: 'cloud_ai' },
+  { id: 'GOOGL', name: 'Alphabet', mcap: 2000, sector: 'cloud_ai' },
+  { id: 'MSFT', name: 'Microsoft', mcap: 3200, sector: 'cloud_ai' },
+  { id: 'ORCL', name: 'Oracle', mcap: 480, sector: 'cloud_ai' },
+  { id: 'ASML', name: 'ASML', mcap: 300, sector: 'equipment' },
+  { id: 'AMAT', name: 'Applied Mat.', mcap: 150, sector: 'equipment' },
+  { id: 'LRCX', name: 'Lam Research', mcap: 100, sector: 'equipment' },
+];
+
+const edges = [
+  ['ASML', 'TSM'], ['AMAT', 'TSM'], ['LRCX', 'TSM'], ['ASML', 'SAMSUNG'],
+  ['TSM', 'NVDA'], ['TSM', 'AMD'], ['TSM', 'AVGO'], ['SAMSUNG', 'NVDA'],
+  ['NVDA', 'META'], ['NVDA', 'GOOGL'], ['NVDA', 'MSFT'], ['NVDA', 'ORCL'],
+  ['AMD', 'META'], ['AVGO', 'GOOGL'], ['AVGO', 'META'],
+  ['HYNIX', 'NVDA'], ['HYNIX', 'AMD'], ['MU', 'NVDA'], ['MU', 'AMD'],
+  ['LRCX', 'HYNIX'], ['ASX', 'NVDA'], ['AMKR', 'AVGO'],
+];
+
+// Cytoscape data
+const elements = [
+  ...nodes.map(n => ({ data: { ...n, size: 20 + Math.log10(n.mcap) * 6 } })),
+  ...edges.map(([s, t]) => ({ data: { source: s, target: t } })),
+];
+
+const cy = cytoscape({
+  container: document.getElementById('cy'),
+  elements,
+  style: [
+    { selector: 'node', style: {
+      'background-color': n => SECTOR[n.data('sector')].color,
+      'label': 'data(id)',
+      'color': '#f8fafc',
+      'font-size': '11px',
+      'font-weight': 600,
+      'text-halign': 'center',
+      'text-valign': 'center',
+      'text-outline-color': '#0a0e1a',
+      'text-outline-width': 1.5,
+      'width': 'data(size)',
+      'height': 'data(size)',
+      'border-width': 2,
+      'border-color': '#0a0e1a',
+      'transition-property': 'background-color, border-color, border-width, opacity',
+      'transition-duration': '0.2s',
+    }},
+    { selector: 'node.dim', style: { 'opacity': 0.15 } },
+    { selector: 'node.highlight', style: {
+      'border-color': '#f97316',
+      'border-width': 3.5,
+      'z-index': 999,
+    }},
+    { selector: 'node.selected', style: {
+      'border-color': '#a855f7',
+      'border-width': 4.5,
+      'z-index': 1000,
+    }},
+    { selector: 'edge', style: {
+      'width': 1.5,
+      'line-color': '#475569',
+      'target-arrow-color': '#475569',
+      'target-arrow-shape': 'triangle',
+      'curve-style': 'bezier',
+      'arrow-scale': 0.8,
+      'opacity': 0.5,
+      'transition-property': 'opacity, line-color, width',
+      'transition-duration': '0.2s',
+    }},
+    { selector: 'edge.dim', style: { 'opacity': 0.05 } },
+    { selector: 'edge.highlight', style: {
+      'line-color': '#f97316',
+      'target-arrow-color': '#f97316',
+      'width': 3,
+      'opacity': 1,
+    }},
+  ],
+  layout: {
+    name: 'fcose',
+    animate: true,
+    animationDuration: 800,
+    nodeRepulsion: 8000,
+    idealEdgeLength: 90,
+    padding: 40,
+  },
+  wheelSensitivity: 0.2,
+});
+
+let selectedNode = null;
+let activeMode = '0';
+
+// hover 效果
+cy.on('mouseover', 'node', evt => {
+  document.body.style.cursor = 'pointer';
+  const n = evt.target;
+  updateDetail(n);
+});
+cy.on('mouseout', 'node', () => {
+  document.body.style.cursor = 'default';
+});
+
+cy.on('tap', 'node', evt => {
+  selectedNode = evt.target;
+  cy.elements().removeClass('selected highlight dim');
+  selectedNode.addClass('selected');
+  applyMode(activeMode);
+});
+
+cy.on('tap', evt => {
+  if (evt.target === cy) {
+    selectedNode = null;
+    cy.elements().removeClass('selected highlight dim');
+    activeMode = '0';
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    document.querySelector('.chip[data-hop="0"]').classList.add('active');
+    resetDetail();
+  }
+});
+
+function applyMode(mode) {
+  cy.elements().removeClass('highlight dim');
+  if (mode === '0' || !selectedNode) return;
+
+  let targets = cy.collection();
+  if (mode === '1') {
+    // 上游 1 跳: 直接前驱
+    targets = selectedNode.incomers('node');
+  } else if (mode === '2') {
+    // 上游 2 跳: BFS
+    targets = selectedNode.predecessors('node').filter((el, i) => selectedNode.edgesTo(el).length === 0 ? true : true).slice(0);
+    targets = getUpstreamNHops(selectedNode, 2);
+  } else if (mode === '3') {
+    targets = getUpstreamNHops(selectedNode, 3);
+  } else if (mode === 'down1') {
+    targets = selectedNode.outgoers('node');
+  } else if (mode === 'path') {
+    // 最短路径: 选 NVDA 到 ASML (最上游 vs 最下游示例)
+    const dst = cy.$('#GOOGL');
+    if (selectedNode.id() === 'GOOGL') {
+      resetDetail('👉 请点非 GOOGL 的节点再点 "最短路径", 会走到 GOOGL');
+      return;
+    }
+    const dijk = cy.elements().dijkstra({ root: selectedNode, directed: true });
+    const path = dijk.pathTo(dst);
+    targets = path.nodes().filter(n => n.id() !== selectedNode.id() && n.id() !== dst.id());
+    path.edges().addClass('highlight');
+    dst.addClass('highlight');
+  }
+
+  targets.addClass('highlight');
+  cy.nodes().difference(selectedNode).difference(targets).addClass('dim');
+  cy.edges().not(selectedNode.edgesWith(targets)).not('.highlight').addClass('dim');
+  selectedNode.edgesWith(targets).addClass('highlight');
+}
+
+function getUpstreamNHops(node, n) {
+  let acc = cy.collection();
+  let frontier = node;
+  for (let i = 0; i < n; i++) {
+    frontier = frontier.incomers('node').difference(acc);
+    if (frontier.length === 0) break;
+    acc = acc.union(frontier);
+  }
+  return acc;
+}
+
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    if (!selectedNode && chip.dataset.hop !== '0') {
+      resetDetail('👉 先点一个节点, 再选算法');
+      return;
+    }
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    activeMode = chip.dataset.hop;
+    applyMode(activeMode);
+    updateHopDetail();
+  });
+});
+
+function updateDetail(n) {
+  const el = document.getElementById('detail');
+  const ticker = n.id();
+  const data = n.data();
+  const ins = n.incomers('node').length;
+  const outs = n.outgoers('node').length;
+  el.innerHTML = `
+    <h3>${data.name} <span class="ticker">${ticker}</span></h3>
+    <div class="row"><b>Sector</b>: ${SECTOR[data.sector].label}</div>
+    <div class="row"><b>市值 (mock)</b>: ~$${data.mcap}B</div>
+    <div class="row"><b>上游</b>: ${ins} 家 · <b>下游</b>: ${outs} 家</div>
+    <div class="sub">点这个节点 → 用顶部按钮跑算法</div>
+  `;
+}
+
+function resetDetail(msg) {
+  document.getElementById('detail').innerHTML = `
+    <h3>${msg ? '⚠️ 提示' : '👋 点一个节点'}</h3>
+    <div class="row">${msg || '再点顶部按钮跑不同的图算法'}</div>
+    <div class="sub">默认布局: fCoSE (力导向)</div>
+  `;
+}
+
+function updateHopDetail() {
+  if (!selectedNode) return;
+  const modeLabel = {
+    '0': '全部显示',
+    '1': '上游 1 跳 · node.incomers()',
+    '2': '上游 2 跳 · BFS 2 层',
+    '3': '上游 3 跳 · BFS 3 层',
+    'down1': '下游 1 跳 · node.outgoers()',
+    'path': `最短路径 · ${selectedNode.id()} → GOOGL · dijkstra()`,
+  }[activeMode];
+  const highlighted = cy.$('.highlight').filter('node').length;
+  const el = document.getElementById('detail');
+  el.innerHTML = `
+    <h3>🧠 图算法结果</h3>
+    <div class="row"><b>选中</b>: ${selectedNode.id()}</div>
+    <div class="row"><b>算法</b>: ${modeLabel}</div>
+    <div class="row"><b>命中</b>: ${highlighted} 个节点</div>
+    <div class="sub">Cytoscape 一行代码 (BFS / dijkstra)</div>
+  `;
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Alpha Lab · Investment Graph POC</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, "SF Pro Display", BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      background: #0a0e1a;
+      color: #e5e7eb;
+      overflow: hidden;
+    }
+
+    /* 顶部控件条 */
+    #controls {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 60px;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 10px;
+      z-index: 10;
+    }
+    #controls h1 {
+      font-size: 15px;
+      margin: 0 20px 0 0;
+      color: #f1f5f9;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #controls h1 .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+    }
+    .chip {
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: #1e293b;
+      color: #cbd5e1;
+      cursor: pointer;
+      font-size: 12.5px;
+      transition: all 0.18s;
+      border: 1px solid transparent;
+      user-select: none;
+    }
+    .chip:hover { background: #334155; color: #f1f5f9; }
+    .chip.active {
+      background: #2563eb;
+      color: white;
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    }
+    .hint {
+      margin-left: auto;
+      font-size: 11.5px;
+      color: #64748b;
+    }
+
+    /* 图 canvas 层 */
+    #graph {
+      position: absolute;
+      top: 60px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+
+    /* 左下图例 */
+    .legend {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(8px);
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 11.5px;
+      border: 1px solid #1e293b;
+      z-index: 5;
+      min-width: 180px;
+    }
+    .legend .title {
+      font-size: 10.5px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 0 0 6px;
+      font-weight: 600;
+    }
+    .legend .title + .title { margin-top: 10px; }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 4px 0;
+      color: #cbd5e1;
+    }
+    .legend-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .legend-line {
+      width: 24px;
+      height: 2.5px;
+      flex-shrink: 0;
+      border-radius: 2px;
+    }
+
+    /* 右下详情 */
+    #detail {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(8px);
+      padding: 14px 18px;
+      border-radius: 10px;
+      font-size: 12.5px;
+      border: 1px solid #1e293b;
+      z-index: 5;
+      max-width: 300px;
+      transition: opacity 0.2s;
+    }
+    #detail.dim { opacity: 0.5; }
+    #detail .name { font-size: 15px; font-weight: 600; color: #f1f5f9; margin: 0 0 4px; }
+    #detail .ticker { color: #60a5fa; font-family: "SF Mono", monospace; font-size: 12px; }
+    #detail .row { margin: 6px 0; color: #cbd5e1; }
+    #detail .row b { color: #f1f5f9; font-weight: 500; }
+    #detail .sub { color: #64748b; font-size: 11px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+<div id="controls">
+  <h1><span class="dot"></span>Alpha Lab · Investment Graph POC</h1>
+  <span class="chip active" data-chain="all">全部</span>
+  <span class="chip" data-chain="ai_chip">AI 芯片链</span>
+  <span class="chip" data-chain="hbm">HBM 存储</span>
+  <span class="chip" data-chain="cowos">CoWoS 封装</span>
+  <span class="chip" data-chain="cloud">云 AI 部署</span>
+  <span class="hint">🔒 只读模式 · 悬停看 1 跳邻居 · 点击 chip 切换产业链</span>
+</div>
+
+<div id="graph"></div>
+
+<div class="legend">
+  <div class="title">节点 sector (颜色)</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#60a5fa"></div>芯片设计</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#a855f7"></div>代工</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div>存储</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div>封测</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div>云端 AI</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#9ca3af"></div>设备 / 材料</div>
+
+  <div class="title">连线 (类型 · 粗细=金额)</div>
+  <div class="legend-row"><div class="legend-line" style="background:#64748b"></div>上下游供应</div>
+  <div class="legend-row"><div class="legend-line" style="background:#eab308"></div>股权投资</div>
+  <div class="legend-row"><div class="legend-line" style="background:#06b6d4"></div>长期合同</div>
+
+  <div class="title">节点大小</div>
+  <div style="color:#cbd5e1;">log(marketCap) 平缓映射<br/>
+    <span style="color:#64748b;font-size:10.5px">大小差 3400B ↔ 8B 压缩到 ~1.5×</span>
+  </div>
+</div>
+
+<div id="detail" class="dim">
+  <div class="name">👋 点或悬停一个节点</div>
+  <div class="row">看它的 <b>公司档案</b> + 1 跳上下游 + 关系类型 + mock 金额</div>
+  <div class="sub">🔬 数据全是 mock 示意, 用于产品设计验证. 不代表真实持股/合同.</div>
+</div>
+
+<!-- d3 v7 完整包 (提供 window.d3 + forceCollide, 60 KB, 稳) -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/force-graph@1.43.5/dist/force-graph.min.js"></script>
+<script>
+  window.addEventListener('error', e => {
+    console.error('[graph load error]', e.message, e.filename);
+    document.getElementById('graph').innerHTML =
+      `<div style="padding:40px;color:#f87171;font-family:monospace;font-size:13px;">
+        ❌ Script error: ${e.message}<br/>at ${e.filename}<br/><br/>
+        Check devtools console. 常见原因: CDN 挂了 / 网络阻断.
+      </div>`;
+  });
+</script>
+<script>
+/* ============================================================
+ *   Alpha Lab Investment Graph POC
+ *   - vanilla force-graph (Canvas + d3-force)
+ *   - mock 半导体 / AI 产业链 (16 家)
+ *   - 4 组产业链 chip · hover 1 跳 · click 聚焦
+ *   - 全部 mock 数据, 用户可以直接改 nodes/links 试
+ * ============================================================ */
+
+// ── Sector 颜色映射 ────────────────────────────────────────
+const sectorColor = {
+  chip_design: '#60a5fa',
+  foundry:     '#a855f7',
+  memory:      '#f97316',
+  packaging:   '#22c55e',
+  cloud_ai:    '#ef4444',
+  equipment:   '#9ca3af',
+};
+
+const sectorLabel = {
+  chip_design: '芯片设计',
+  foundry:     '代工',
+  memory:      '存储',
+  packaging:   '封测',
+  cloud_ai:    '云端 AI',
+  equipment:   '设备 / 材料',
+};
+
+// ── 节点: 16 家真实公司 (marketCap 是 mock 数量级) ─────────
+const nodes = [
+  // 芯片设计
+  { id: 'NVDA',      name: 'NVIDIA',            ticker: 'NVDA',      marketCap: 3400, sector: 'chip_design', chains: ['ai_chip', 'hbm', 'cowos', 'cloud'] },
+  { id: 'AMD',       name: 'AMD',               ticker: 'AMD',       marketCap: 260,  sector: 'chip_design', chains: ['ai_chip', 'hbm'] },
+  { id: 'AVGO',      name: 'Broadcom',          ticker: 'AVGO',      marketCap: 780,  sector: 'chip_design', chains: ['ai_chip', 'cloud'] },
+
+  // 代工
+  { id: 'TSM',       name: 'TSMC',              ticker: 'TSM',       marketCap: 1050, sector: 'foundry',     chains: ['ai_chip', 'cowos'] },
+  { id: 'SAMSUNG',   name: 'Samsung Electronics', ticker: '005930.KS', marketCap: 380,  sector: 'foundry',     chains: ['ai_chip', 'hbm'] },
+
+  // 存储 (HBM)
+  { id: 'HYNIX',     name: 'SK Hynix',          ticker: '000660.KS', marketCap: 110,  sector: 'memory',      chains: ['hbm'] },
+  { id: 'MU',        name: 'Micron',            ticker: 'MU',        marketCap: 130,  sector: 'memory',      chains: ['hbm'] },
+
+  // 封测
+  { id: 'ASX',       name: 'ASE Technology',    ticker: 'ASX',       marketCap: 22,   sector: 'packaging',   chains: ['cowos'] },
+  { id: 'AMKR',      name: 'Amkor',             ticker: 'AMKR',      marketCap: 8,    sector: 'packaging',   chains: ['cowos'] },
+
+  // 云端 AI (下游需求)
+  { id: 'META',      name: 'Meta',              ticker: 'META',      marketCap: 1500, sector: 'cloud_ai',    chains: ['ai_chip', 'cloud'] },
+  { id: 'GOOGL',     name: 'Alphabet',          ticker: 'GOOGL',     marketCap: 2000, sector: 'cloud_ai',    chains: ['ai_chip', 'cloud'] },
+  { id: 'MSFT',      name: 'Microsoft',         ticker: 'MSFT',      marketCap: 3200, sector: 'cloud_ai',    chains: ['ai_chip', 'cloud'] },
+  { id: 'ORCL',      name: 'Oracle',            ticker: 'ORCL',      marketCap: 480,  sector: 'cloud_ai',    chains: ['cloud'] },
+
+  // 设备 / 材料 (最上游)
+  { id: 'ASML',      name: 'ASML',              ticker: 'ASML',      marketCap: 300,  sector: 'equipment',   chains: ['ai_chip', 'cowos'] },
+  { id: 'AMAT',      name: 'Applied Materials', ticker: 'AMAT',      marketCap: 150,  sector: 'equipment',   chains: ['ai_chip'] },
+  { id: 'LRCX',      name: 'Lam Research',      ticker: 'LRCX',      marketCap: 100,  sector: 'equipment',   chains: ['ai_chip', 'hbm'] },
+];
+
+// ── 边: type=supply/invest/contract, amount 是 mock ($B/年) ──
+const links = [
+  // AI 芯片链: 设备 → 代工
+  { source: 'ASML',    target: 'TSM',   type: 'supply',   amount: 12, chain: 'ai_chip' },
+  { source: 'AMAT',    target: 'TSM',   type: 'supply',   amount: 8,  chain: 'ai_chip' },
+  { source: 'LRCX',    target: 'TSM',   type: 'supply',   amount: 6,  chain: 'ai_chip' },
+  { source: 'ASML',    target: 'SAMSUNG', type: 'supply', amount: 9,  chain: 'ai_chip' },
+
+  // AI 芯片链: 代工 → 设计
+  { source: 'TSM',     target: 'NVDA',  type: 'supply',   amount: 40, chain: 'ai_chip' },
+  { source: 'TSM',     target: 'AMD',   type: 'supply',   amount: 12, chain: 'ai_chip' },
+  { source: 'TSM',     target: 'AVGO',  type: 'supply',   amount: 18, chain: 'ai_chip' },
+  { source: 'SAMSUNG', target: 'NVDA',  type: 'supply',   amount: 5,  chain: 'ai_chip' },
+
+  // 云 AI 链: 设计 → 云
+  { source: 'NVDA',    target: 'META',  type: 'contract', amount: 25, chain: 'cloud' },
+  { source: 'NVDA',    target: 'GOOGL', type: 'contract', amount: 20, chain: 'cloud' },
+  { source: 'NVDA',    target: 'MSFT',  type: 'contract', amount: 30, chain: 'cloud' },
+  { source: 'NVDA',    target: 'ORCL',  type: 'contract', amount: 12, chain: 'cloud' },
+  { source: 'AMD',     target: 'META',  type: 'contract', amount: 8,  chain: 'cloud' },
+  { source: 'AVGO',    target: 'GOOGL', type: 'contract', amount: 15, chain: 'cloud' },
+  { source: 'AVGO',    target: 'META',  type: 'contract', amount: 10, chain: 'cloud' },
+
+  // HBM 存储链
+  { source: 'HYNIX',   target: 'NVDA',  type: 'supply',   amount: 22, chain: 'hbm' },
+  { source: 'HYNIX',   target: 'AMD',   type: 'supply',   amount: 6,  chain: 'hbm' },
+  { source: 'MU',      target: 'NVDA',  type: 'supply',   amount: 8,  chain: 'hbm' },
+  { source: 'MU',      target: 'AMD',   type: 'supply',   amount: 3,  chain: 'hbm' },
+  { source: 'SAMSUNG', target: 'NVDA',  type: 'supply',   amount: 5,  chain: 'hbm' },
+  { source: 'LRCX',    target: 'HYNIX', type: 'supply',   amount: 3,  chain: 'hbm' },
+
+  // CoWoS 封装链
+  { source: 'TSM',     target: 'NVDA',  type: 'supply',   amount: 15, chain: 'cowos' },
+  { source: 'ASX',     target: 'NVDA',  type: 'supply',   amount: 3,  chain: 'cowos' },
+  { source: 'AMKR',    target: 'AVGO',  type: 'supply',   amount: 2,  chain: 'cowos' },
+  { source: 'ASML',    target: 'TSM',   type: 'supply',   amount: 8,  chain: 'cowos' },
+
+  // 投资关系 (示例)
+  { source: 'MSFT',    target: 'NVDA',  type: 'invest',   amount: 5 },
+];
+
+// ── 状态 ──────────────────────────────────────────────────
+let activeChain = 'all';
+const highlightNodes = new Set();
+const highlightLinks = new Set();
+let hoverNode = null;
+
+// ── 高亮逻辑 ──────────────────────────────────────────────
+function updateHighlight() {
+  highlightNodes.clear();
+  highlightLinks.clear();
+
+  // chain 高亮
+  if (activeChain !== 'all') {
+    nodes.forEach(n => {
+      if (n.chains && n.chains.includes(activeChain)) highlightNodes.add(n.id);
+    });
+    links.forEach(l => {
+      if (l.chain === activeChain) highlightLinks.add(l);
+    });
+  }
+
+  // hover 1 跳邻居
+  if (hoverNode) {
+    highlightNodes.add(hoverNode.id);
+    links.forEach(l => {
+      const s = typeof l.source === 'object' ? l.source.id : l.source;
+      const t = typeof l.target === 'object' ? l.target.id : l.target;
+      if (s === hoverNode.id) { highlightNodes.add(t); highlightLinks.add(l); }
+      else if (t === hoverNode.id) { highlightNodes.add(s); highlightLinks.add(l); }
+    });
+  }
+}
+
+// ── 连线颜色 ──────────────────────────────────────────────
+const linkColorMap = {
+  supply:   'rgba(100, 116, 139, 0.55)', // 灰
+  invest:   'rgba(234, 179, 8, 0.75)',   // 金
+  contract: 'rgba(6, 182, 212, 0.60)',   // 青
+};
+
+const isDimmed = () => highlightNodes.size > 0;
+
+// ── 画图 ──────────────────────────────────────────────────
+const graph = ForceGraph()(document.getElementById('graph'))
+  .graphData({ nodes, links })
+  .backgroundColor('#0a0e1a')
+
+  // 节点大小: log10 平缓映射 — 压缩 3400B ↔ 8B (原 20×) 到视觉 ~1.5×
+  //   NVDA 3400 → nodeVal 7.3 → 半径 ~10.8
+  //   AMKR 8    → nodeVal 3.35 → 半径 ~7.3
+  .nodeVal(n => 2 + Math.log10(n.marketCap + 1) * 1.5)
+
+  // hover tooltip
+  .nodeLabel(n => `<div style="padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;font-size:12px;">
+      <b style="color:#f1f5f9">${n.name}</b>
+      <span style="color:#60a5fa;font-family:monospace;margin-left:6px">${n.ticker}</span><br/>
+      <span style="color:#94a3b8;font-size:11px">${sectorLabel[n.sector]} · 市值 ~$${n.marketCap}B</span>
+    </div>`)
+
+  // 节点颜色 (dim 非高亮)
+  .nodeColor(n => {
+    const base = sectorColor[n.sector];
+    if (!isDimmed()) return base;
+    return highlightNodes.has(n.id) ? base : (base + '25'); // 25 = ~15% alpha
+  })
+
+  // 节点上加 ticker 标签
+  .nodeCanvasObjectMode(() => 'after')
+  .nodeCanvasObject((node, ctx, globalScale) => {
+    const label = node.ticker.replace('.KS', '');
+    const fontSize = Math.max(4, Math.min(14, 11 / globalScale));
+    const dimmed = isDimmed() && !highlightNodes.has(node.id);
+    ctx.font = `600 ${fontSize}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = dimmed ? 'rgba(241, 245, 249, 0.25)' : '#f8fafc';
+    // 阴影让白字在彩球上更清楚
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    ctx.shadowBlur = 3;
+    ctx.fillText(label, node.x, node.y);
+    ctx.shadowBlur = 0;
+  })
+
+  // 边颜色 + dim
+  .linkColor(l => {
+    if (isDimmed() && !highlightLinks.has(l)) return 'rgba(100, 116, 139, 0.08)';
+    return linkColorMap[l.type] || linkColorMap.supply;
+  })
+  .linkWidth(l => Math.log(l.amount + 1) * 0.9)
+
+  // 高亮边的流动粒子
+  .linkDirectionalParticles(l => highlightLinks.has(l) ? 4 : 0)
+  .linkDirectionalParticleWidth(2.5)
+  .linkDirectionalParticleSpeed(0.008)
+
+  // 交互
+  .onNodeHover(node => {
+    hoverNode = node || null;
+    updateHighlight();
+    updateDetail(node);
+    document.getElementById('graph').style.cursor = node ? 'pointer' : 'default';
+  })
+  // click 只更新详情, 不做摄影机动画 (只读模式)
+  .onNodeClick(node => updateDetail(node))
+
+  // ── 只读模式: 禁用拖动 / 缩放 / 平移 ──
+  .enableNodeDrag(false)
+  .enableZoomInteraction(false)
+  .enablePanInteraction(false)
+
+  // 物理参数: 物理几秒 settle, 但 render loop 一直跑 (hover 立即生效)
+  .d3AlphaDecay(0.04)         // 冷却快, alpha 几秒后极低, 物理几乎不动
+  .d3VelocityDecay(0.55)      // 阻尼加倍, 波传不远
+  .warmupTicks(80)            // 页面一开就稳定布局
+  .cooldownTicks(Infinity);   // ⭐ 关键: rAF 永不停, hover/chip 变化下一帧就渲染
+
+// ── 防重叠: 碰撞力 (每个节点当刚体, 半径 + 4px padding) ────
+const NODE_REL_SIZE = 4; // force-graph 默认 nodeRelSize
+const nodeRadius = n => Math.sqrt(2 + Math.log10(n.marketCap + 1) * 1.5) * NODE_REL_SIZE;
+
+if (typeof d3 !== 'undefined' && d3.forceCollide) {
+  graph
+    .d3Force('collide', d3.forceCollide(n => nodeRadius(n) + 4).strength(0.95).iterations(2))
+    .d3Force('charge').strength(-40);    // 从 -160 → -40, 排斥力大幅减弱, 拖球不带飞邻居
+  graph.d3ReheatSimulation();
+  console.log('[graph] 防重叠碰撞力已注入, charge -40 (低灵敏度)');
+} else {
+  console.warn('[graph] d3 未加载, 跳过碰撞力. 球仍能显示但可能重叠.');
+}
+
+// ── 右下详情面板更新 ─────────────────────────────────────
+function updateDetail(node) {
+  const el = document.getElementById('detail');
+  if (!node) {
+    el.classList.add('dim');
+    el.innerHTML = `<div class="name">👋 点或悬停一个节点</div>
+      <div class="row">看它的 <b>公司档案</b> + 1 跳上下游 + 关系类型 + mock 金额</div>
+      <div class="sub">🔬 数据全是 mock 示意, 用于产品设计验证. 不代表真实持股 / 合同.</div>`;
+    return;
+  }
+  el.classList.remove('dim');
+  const inLinks = links.filter(l => {
+    const t = typeof l.target === 'object' ? l.target.id : l.target;
+    return t === node.id;
+  });
+  const outLinks = links.filter(l => {
+    const s = typeof l.source === 'object' ? l.source.id : l.source;
+    return s === node.id;
+  });
+  const fmtL = l => {
+    const other = (typeof l.source === 'object' ? l.source.id : l.source) === node.id
+      ? (typeof l.target === 'object' ? l.target.id : l.target)
+      : (typeof l.source === 'object' ? l.source.id : l.source);
+    const typeLabel = { supply: '供应', invest: '投资', contract: '合同' }[l.type];
+    return `${other} <span style="color:#64748b;font-size:11px">· ${typeLabel} $${l.amount}B</span>`;
+  };
+  el.innerHTML = `
+    <div class="name">${node.name} <span class="ticker">${node.ticker}</span></div>
+    <div class="row"><b>Sector</b>: ${sectorLabel[node.sector]}</div>
+    <div class="row"><b>市值 (mock)</b>: ~$${node.marketCap}B</div>
+    ${inLinks.length ? `<div class="row"><b>上游 (${inLinks.length})</b>: ${inLinks.map(fmtL).join(', ')}</div>` : ''}
+    ${outLinks.length ? `<div class="row"><b>下游 (${outLinks.length})</b>: ${outLinks.map(fmtL).join(', ')}</div>` : ''}
+    <div class="sub">🔬 mock 数据 · 真产品接 Alpha Lab · KG P0 v2 (Entity Resolution) 输出</div>
+  `;
+}
+
+// ── Chip 交互 ────────────────────────────────────────────
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    activeChain = chip.dataset.chain;
+    updateHighlight();
+  });
+});
+
+// ── 初始视图 ─────────────────────────────────────────────
+setTimeout(() => graph.zoomToFit(1000, 80), 500);
+
+// 响应窗口
+function fitSize() {
+  graph.width(window.innerWidth).height(window.innerHeight - 60);
+}
+window.addEventListener('resize', fitSize);
+fitSize();
+</script>
+
+</body>
+</html>

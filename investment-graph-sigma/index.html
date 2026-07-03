@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Sigma.js · Investment Graph</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, sans-serif; background: #0a0e1a; color: #e5e7eb; overflow: hidden; }
+  #container { position: absolute; top: 60px; left: 0; right: 0; bottom: 0; }
+  #controls { position: absolute; top: 0; left: 0; right: 0; height: 60px; background: rgba(15,23,42,0.95); border-bottom: 1px solid #1e293b; display: flex; align-items: center; padding: 0 24px; gap: 10px; z-index: 10; }
+  h1 { font-size: 15px; margin: 0 20px 0 0; color: #f1f5f9; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 12px rgba(34, 197, 94, 0.6); }
+  .badge { font-size: 11px; color: #22c55e; background: rgba(34,197,94,0.1); padding: 3px 10px; border-radius: 12px; }
+  a.back { margin-left: auto; color: #94a3b8; font-size: 12px; text-decoration: none; }
+  a.back:hover { color: #60a5fa; }
+  .hint { position: absolute; bottom: 20px; left: 20px; background: rgba(15,23,42,0.9); padding: 14px 18px; border-radius: 10px; font-size: 12.5px; border: 1px solid #1e293b; z-index: 5; max-width: 320px; }
+  .hint b { color: #22c55e; }
+  .hint code { background: #1e293b; padding: 2px 5px; border-radius: 3px; font-family: "SF Mono", monospace; font-size: 11px; color: #f97316; }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <h1><span class="dot"></span>Sigma.js · WebGL 加速</h1>
+  <span class="badge">🚀 WebGL2</span>
+  <span style="color:#64748b;font-size:12px;margin-left:12px">拖动 · 滚轮缩放 · hover 悬停</span>
+  <a class="back" href="../investment-graph-index.html">← 返回门户</a>
+</div>
+
+<div id="container"></div>
+
+<div class="hint">
+  <b>📐 Sigma.js 特色</b><br/>
+  WebGL2 硬件加速渲染, 一样 16 家公司但**每帧 GPU 出图**.
+  <br/><br/>
+  <b>杀手锏</b>: 加到 <code>5000+</code> 节点也 60 fps 流畅. 你现在这种数量级看不出优势, 想象接入 Alpha Lab KG 全量 (公司 + KOL + 事件 + 财报) 就是它.
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/graphology@0.25.1/dist/graphology.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/build/graphology-layout-forceatlas2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+
+<script>
+const SECTOR = {
+  chip_design: '#60a5fa',
+  foundry:     '#a855f7',
+  memory:      '#f97316',
+  packaging:   '#22c55e',
+  cloud_ai:    '#ef4444',
+  equipment:   '#9ca3af',
+};
+
+const nodes = [
+  ['NVDA', 'NVIDIA', 3400, 'chip_design'],
+  ['AMD', 'AMD', 260, 'chip_design'],
+  ['AVGO', 'Broadcom', 780, 'chip_design'],
+  ['TSM', 'TSMC', 1050, 'foundry'],
+  ['SAMSUNG', 'Samsung', 380, 'foundry'],
+  ['HYNIX', 'SK Hynix', 110, 'memory'],
+  ['MU', 'Micron', 130, 'memory'],
+  ['ASX', 'ASE Tech', 22, 'packaging'],
+  ['AMKR', 'Amkor', 8, 'packaging'],
+  ['META', 'Meta', 1500, 'cloud_ai'],
+  ['GOOGL', 'Alphabet', 2000, 'cloud_ai'],
+  ['MSFT', 'Microsoft', 3200, 'cloud_ai'],
+  ['ORCL', 'Oracle', 480, 'cloud_ai'],
+  ['ASML', 'ASML', 300, 'equipment'],
+  ['AMAT', 'Applied Mat', 150, 'equipment'],
+  ['LRCX', 'Lam Research', 100, 'equipment'],
+];
+
+const edges = [
+  ['ASML', 'TSM'], ['AMAT', 'TSM'], ['LRCX', 'TSM'], ['ASML', 'SAMSUNG'],
+  ['TSM', 'NVDA'], ['TSM', 'AMD'], ['TSM', 'AVGO'], ['SAMSUNG', 'NVDA'],
+  ['NVDA', 'META'], ['NVDA', 'GOOGL'], ['NVDA', 'MSFT'], ['NVDA', 'ORCL'],
+  ['AMD', 'META'], ['AVGO', 'GOOGL'], ['AVGO', 'META'],
+  ['HYNIX', 'NVDA'], ['HYNIX', 'AMD'], ['MU', 'NVDA'], ['MU', 'AMD'],
+  ['LRCX', 'HYNIX'], ['ASX', 'NVDA'], ['AMKR', 'AVGO'],
+];
+
+const graph = new graphology.Graph();
+nodes.forEach(([id, name, mcap, sector], i) => {
+  const angle = (i / nodes.length) * 2 * Math.PI;
+  graph.addNode(id, {
+    label: `${id}  ${name}`,
+    x: Math.cos(angle) * 100,
+    y: Math.sin(angle) * 100,
+    size: Math.max(6, Math.log10(mcap) * 5),
+    color: SECTOR[sector],
+  });
+});
+edges.forEach(([s, t]) => graph.addEdge(s, t, { size: 1.2, color: '#475569' }));
+
+// Force Atlas 2 布局 iterations
+graphologyLibrary.layoutForceAtlas2.assign(graph, {
+  iterations: 200,
+  settings: { gravity: 1, scalingRatio: 8, slowDown: 3, barnesHutOptimize: true },
+});
+
+const renderer = new Sigma(graph, document.getElementById('container'), {
+  renderLabels: true,
+  labelFont: '-apple-system, sans-serif',
+  labelSize: 12,
+  labelWeight: '600',
+  labelColor: { color: '#f8fafc' },
+  labelDensity: 1,
+  labelGridCellSize: 60,
+  defaultEdgeType: 'arrow',
+});
+
+// Hover 高亮
+let hoveredNode = null;
+renderer.on('enterNode', ({ node }) => {
+  hoveredNode = node;
+  renderer.refresh();
+});
+renderer.on('leaveNode', () => {
+  hoveredNode = null;
+  renderer.refresh();
+});
+
+renderer.setSetting('nodeReducer', (node, data) => {
+  if (hoveredNode && node !== hoveredNode && !graph.hasEdge(hoveredNode, node) && !graph.hasEdge(node, hoveredNode)) {
+    return { ...data, color: '#334155', label: '' };
+  }
+  return data;
+});
+
+renderer.setSetting('edgeReducer', (edge, data) => {
+  if (hoveredNode) {
+    const [s, t] = graph.extremities(edge);
+    if (s === hoveredNode || t === hoveredNode) {
+      return { ...data, color: '#f97316', size: 2.5 };
+    }
+    return { ...data, color: '#1e293b' };
+  }
+  return data;
+});
+</script>
+
+</body>
+</html>

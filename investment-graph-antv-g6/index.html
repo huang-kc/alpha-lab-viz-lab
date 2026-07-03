@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>AntV G6 · Investment Graph</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, sans-serif; background: #0a0e1a; color: #e5e7eb; overflow: hidden; }
+  #chart { position: absolute; top: 60px; left: 0; right: 0; bottom: 0; }
+  #controls { position: absolute; top: 0; left: 0; right: 0; height: 60px; background: rgba(15,23,42,0.95); border-bottom: 1px solid #1e293b; display: flex; align-items: center; padding: 0 24px; gap: 10px; z-index: 10; }
+  h1 { font-size: 15px; margin: 0 20px 0 0; color: #f1f5f9; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: #06b6d4; box-shadow: 0 0 12px rgba(6, 182, 212, 0.6); }
+  .chip { padding: 6px 14px; border-radius: 20px; background: #1e293b; color: #cbd5e1; cursor: pointer; font-size: 12.5px; border: 1px solid transparent; }
+  .chip:hover { background: #334155; color: #f1f5f9; }
+  .chip.active { background: #06b6d4; color: white; border-color: #67e8f9; }
+  a.back { margin-left: auto; color: #94a3b8; font-size: 12px; text-decoration: none; }
+  a.back:hover { color: #60a5fa; }
+  .hint { position: absolute; bottom: 20px; left: 20px; background: rgba(15,23,42,0.9); padding: 14px 18px; border-radius: 10px; font-size: 12.5px; border: 1px solid #1e293b; z-index: 5; max-width: 320px; }
+  .hint b { color: #06b6d4; }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <h1><span class="dot"></span>AntV G6 · 商业金融风</h1>
+  <span class="chip active" data-layout="force">力导向</span>
+  <span class="chip" data-layout="dagre">分层 DAG</span>
+  <span class="chip" data-layout="circular">环形</span>
+  <span class="chip" data-layout="radial">放射</span>
+  <a class="back" href="../investment-graph-index.html">← 返回门户</a>
+</div>
+
+<div id="chart"></div>
+
+<div class="hint">
+  <b>🏛️ AntV G6 特色</b><br/>
+  阿里数据可视化团队作品. 内置 20+ 布局算法, 一键切换 (顶部按钮).<br/><br/>
+  <b>金融感</b>: 曲线边 + 箭头 + 节点带上下渐变, 视觉严谨适合商业中台.
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@antv/g6@4.8.24/dist/g6.min.js"></script>
+
+<script>
+const SECTOR = {
+  chip_design: '#60a5fa',
+  foundry:     '#a855f7',
+  memory:      '#f97316',
+  packaging:   '#22c55e',
+  cloud_ai:    '#ef4444',
+  equipment:   '#9ca3af',
+};
+
+const nodes = [
+  { id: 'NVDA', label: 'NVDA', mcap: 3400, sector: 'chip_design' },
+  { id: 'AMD', label: 'AMD', mcap: 260, sector: 'chip_design' },
+  { id: 'AVGO', label: 'AVGO', mcap: 780, sector: 'chip_design' },
+  { id: 'TSM', label: 'TSM', mcap: 1050, sector: 'foundry' },
+  { id: 'SAMSUNG', label: 'SMSN', mcap: 380, sector: 'foundry' },
+  { id: 'HYNIX', label: 'HYNIX', mcap: 110, sector: 'memory' },
+  { id: 'MU', label: 'MU', mcap: 130, sector: 'memory' },
+  { id: 'ASX', label: 'ASX', mcap: 22, sector: 'packaging' },
+  { id: 'AMKR', label: 'AMKR', mcap: 8, sector: 'packaging' },
+  { id: 'META', label: 'META', mcap: 1500, sector: 'cloud_ai' },
+  { id: 'GOOGL', label: 'GOOGL', mcap: 2000, sector: 'cloud_ai' },
+  { id: 'MSFT', label: 'MSFT', mcap: 3200, sector: 'cloud_ai' },
+  { id: 'ORCL', label: 'ORCL', mcap: 480, sector: 'cloud_ai' },
+  { id: 'ASML', label: 'ASML', mcap: 300, sector: 'equipment' },
+  { id: 'AMAT', label: 'AMAT', mcap: 150, sector: 'equipment' },
+  { id: 'LRCX', label: 'LRCX', mcap: 100, sector: 'equipment' },
+];
+
+const edges = [
+  ['ASML', 'TSM'], ['AMAT', 'TSM'], ['LRCX', 'TSM'], ['ASML', 'SAMSUNG'],
+  ['TSM', 'NVDA'], ['TSM', 'AMD'], ['TSM', 'AVGO'], ['SAMSUNG', 'NVDA'],
+  ['NVDA', 'META'], ['NVDA', 'GOOGL'], ['NVDA', 'MSFT'], ['NVDA', 'ORCL'],
+  ['AMD', 'META'], ['AVGO', 'GOOGL'], ['AVGO', 'META'],
+  ['HYNIX', 'NVDA'], ['HYNIX', 'AMD'], ['MU', 'NVDA'], ['MU', 'AMD'],
+  ['LRCX', 'HYNIX'], ['ASX', 'NVDA'], ['AMKR', 'AVGO'],
+];
+
+const graphData = {
+  nodes: nodes.map(n => ({
+    id: n.id,
+    label: n.label,
+    size: Math.max(28, Math.log10(n.mcap) * 12),
+    style: {
+      fill: SECTOR[n.sector],
+      stroke: '#0a0e1a',
+      lineWidth: 2,
+      shadowColor: SECTOR[n.sector],
+      shadowBlur: 12,
+    },
+    labelCfg: {
+      style: { fill: '#f8fafc', fontSize: 11, fontWeight: 600, textShadow: '0 1px 4px rgba(0,0,0,0.7)' },
+    },
+  })),
+  edges: edges.map(([s, t]) => ({
+    source: s,
+    target: t,
+    style: {
+      stroke: '#475569',
+      lineWidth: 1.5,
+      endArrow: { path: G6.Arrow.triangle(6, 8), fill: '#475569' },
+      opacity: 0.6,
+    },
+  })),
+};
+
+const container = document.getElementById('chart');
+const width = window.innerWidth;
+const height = window.innerHeight - 60;
+
+const layouts = {
+  force: { type: 'force', preventOverlap: true, nodeSize: 60, linkDistance: 120, nodeStrength: -80, edgeStrength: 0.4 },
+  dagre: { type: 'dagre', rankdir: 'LR', nodesep: 30, ranksep: 80 },
+  circular: { type: 'circular', radius: Math.min(width, height) / 2 - 80 },
+  radial: { type: 'radial', unitRadius: 120, preventOverlap: true, nodeSize: 60, strictRadial: false, focusNode: 'NVDA' },
+};
+
+const graph = new G6.Graph({
+  container,
+  width,
+  height,
+  layout: layouts.force,
+  modes: { default: ['drag-canvas', 'zoom-canvas', 'drag-node'] },
+  defaultEdge: { type: 'quadratic', curveOffset: 15 },
+  animate: true,
+  animateCfg: { duration: 500, easing: 'easeCubic' },
+});
+
+graph.data(graphData);
+graph.render();
+
+// Chip 切换布局
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    graph.updateLayout(layouts[chip.dataset.layout]);
+  });
+});
+
+// hover
+graph.on('node:mouseenter', evt => {
+  const node = evt.item;
+  const neighbors = new Set([node.getID(), ...graph.getNeighbors(node).map(n => n.getID())]);
+  graph.getNodes().forEach(n => {
+    graph.setItemState(n, 'inactive', !neighbors.has(n.getID()));
+  });
+  graph.getEdges().forEach(e => {
+    const model = e.getModel();
+    graph.setItemState(e, 'inactive', model.source !== node.getID() && model.target !== node.getID());
+  });
+});
+graph.on('node:mouseleave', () => {
+  graph.getNodes().forEach(n => graph.setItemState(n, 'inactive', false));
+  graph.getEdges().forEach(e => graph.setItemState(e, 'inactive', false));
+});
+
+graph.node(n => ({
+  stateStyles: { inactive: { opacity: 0.15 } },
+}));
+graph.edge(e => ({
+  stateStyles: { inactive: { opacity: 0.05 } },
+}));
+
+// 响应窗口
+window.addEventListener('resize', () => {
+  graph.changeSize(window.innerWidth, window.innerHeight - 60);
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>vis-network · Investment Graph</title>
+<link href="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/styles/vis-network.min.css" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, sans-serif; background: #0a0e1a; color: #e5e7eb; overflow: hidden; }
+  #chart { position: absolute; top: 60px; left: 0; right: 0; bottom: 0; }
+  #controls { position: absolute; top: 0; left: 0; right: 0; height: 60px; background: rgba(15,23,42,0.95); border-bottom: 1px solid #1e293b; display: flex; align-items: center; padding: 0 24px; gap: 10px; z-index: 10; }
+  h1 { font-size: 15px; margin: 0 20px 0 0; color: #f1f5f9; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: #eab308; box-shadow: 0 0 12px rgba(234, 179, 8, 0.6); }
+  .chip { padding: 6px 14px; border-radius: 20px; background: #1e293b; color: #cbd5e1; cursor: pointer; font-size: 12.5px; border: 1px solid transparent; }
+  .chip:hover { background: #334155; color: #f1f5f9; }
+  .chip.active { background: #eab308; color: #0a0e1a; border-color: #fde047; }
+  a.back { margin-left: auto; color: #94a3b8; font-size: 12px; text-decoration: none; }
+  a.back:hover { color: #60a5fa; }
+  .hint { position: absolute; bottom: 20px; left: 20px; background: rgba(15,23,42,0.9); padding: 14px 18px; border-radius: 10px; font-size: 12.5px; border: 1px solid #1e293b; z-index: 5; max-width: 320px; }
+  .hint b { color: #eab308; }
+  #load-status { color: #eab308; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <h1><span class="dot"></span>vis-network · 全 55 家 · Live</h1>
+  <span class="chip active" data-layout="physics">物理</span>
+  <span class="chip" data-layout="hier-lr">L→R</span>
+  <span class="chip" data-layout="hier-tb">上→下</span>
+  <span style="width:1px;height:22px;background:#334155;margin:0 6px;"></span>
+  <span class="chip active" data-source="all">全部边</span>
+  <span class="chip" data-source="sec_10k">仅 SEC 验证</span>
+  <span class="chip" data-source="kol">仅 KOL 说</span>
+  <span id="load-status" style="margin-left:14px;">⏳ 加载中...</span>
+  <a class="back" href="../investment-graph-index.html">← 返回门户</a>
+</div>
+
+<div id="chart"></div>
+
+<div class="hint">
+  <b>🕸️ 全 55 家 (registry) · KG 关系图</b><br/>
+  <b>节点</b>: 大小 = log(市值) · 颜色 = sector · 位置 = L→R 供应链层<br/>
+  <b>边颜色</b>: 🟢供 🔵客 🟠依赖 🔴卡点 🟡投资 🟣竞争<br/>
+  <b>边样式</b>: 粗实线 = SEC 10-K 验证 · 细虚线 = KOL 说的<br/>
+  <b>hover</b>: 节点看 facts, 边看 evidence 原文
+</div>
+
+<div id="legend" style="position:absolute;top:80px;right:20px;background:rgba(15,23,42,0.9);padding:12px 14px;border-radius:10px;font-size:11.5px;border:1px solid #1e293b;z-index:5;line-height:1.7;max-width:180px;">
+  <div style="font-size:11px;color:#f1f5f9;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">L→R 分层</div>
+  <div id="legend-items"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+
+<script>
+// ─── 5 层供应链 taxonomy (L→R) + 颜色 (sector) ────────────────────
+// 每个 sector 显式对应一个 level (vis-network 直接按 level 排列, 不靠 edge 推).
+// Level 0=最上游 (设备), Level 4=最下游 (端应用).
+const SECTOR = {
+  //  key             color       level  label
+  equipment:   { color: '#9ca3af', level: 0, label: '设备/材料' },
+  foundry:     { color: '#a855f7', level: 1, label: '晶圆代工' },
+  memory:      { color: '#f97316', level: 2, label: '存储' },
+  chip_design: { color: '#60a5fa', level: 2, label: '芯片设计' },
+  optical:     { color: '#06b6d4', level: 2, label: '光通信/CPO' },
+  packaging:   { color: '#22c55e', level: 2, label: '封测/PCB' },
+  networking:  { color: '#0ea5e9', level: 3, label: '网络系统' },
+  hardware:    { color: '#84cc16', level: 3, label: '整机' },
+  battery:     { color: '#eab308', level: 3, label: '电池/储能' },
+  cloud_ai:    { color: '#ef4444', level: 4, label: '云端/AI 应用' },
+  auto_ev:     { color: '#facc15', level: 4, label: '汽车/EV' },
+  cn_tech:     { color: '#ec4899', level: 4, label: '中概互联网' },
+  consumer_tech:{color:'#f472b6', level: 4, label: '消费电子' },
+  fintech:     { color: '#22c55e', level: 4, label: '金融/交易' },
+  healthcare:  { color: '#c084fc', level: 4, label: '医疗' },
+  other:       { color: '#6b7280', level: 4, label: '其他' },
+};
+
+// ─── Nodes (55 家) — sector 决定 level (L→R 分层的关键) + 颜色 ─────
+const rawNodes = [
+  // Level 0: 设备/材料
+  { id: 'ASML',  ticker: 'ASML',      sector: 'equipment',  fallback: 300 },
+  { id: 'AMAT',  ticker: 'AMAT',      sector: 'equipment',  fallback: 150 },
+  { id: 'LRCX',  ticker: 'LRCX',      sector: 'equipment',  fallback: 100 },
+  { id: 'KLAC',  ticker: 'KLAC',      sector: 'equipment',  fallback: 90  },
+  { id: 'AXTI',  ticker: 'AXTI',      sector: 'equipment',  fallback: 0.3 }, // III-V 晶圆材料
+
+  // Level 1: 代工
+  { id: 'TSM',   ticker: 'TSM',       sector: 'foundry',    fallback: 1050 },
+  { id: 'SMSN',  ticker: '005930.KS', sector: 'foundry',    fallback: 380  },
+
+  // Level 2 — 芯片设计 (chip_design)
+  { id: 'NVDA',  ticker: 'NVDA',      sector: 'chip_design', fallback: 3400 },
+  { id: 'AMD',   ticker: 'AMD',       sector: 'chip_design', fallback: 260  },
+  { id: 'AVGO',  ticker: 'AVGO',      sector: 'chip_design', fallback: 780  },
+  { id: 'INTC',  ticker: 'INTC',      sector: 'chip_design', fallback: 130  },
+  { id: 'QCOM',  ticker: 'QCOM',      sector: 'chip_design', fallback: 180  },
+  { id: 'MRVL',  ticker: 'MRVL',      sector: 'chip_design', fallback: 90   },
+  { id: 'ARM',   ticker: 'ARM',       sector: 'chip_design', fallback: 130  },
+  { id: 'MTGE',  ticker: '688008.SH', sector: 'chip_design', fallback: 20   },
+
+  // Level 2 — 存储 (memory)
+  { id: 'HYNIX', ticker: '000660.KS', sector: 'memory',      fallback: 110 },
+  { id: 'MU',    ticker: 'MU',        sector: 'memory',      fallback: 130 },
+  { id: 'SNDK',  ticker: 'SNDK',      sector: 'memory',      fallback: 20  },
+
+  // Level 2 — 光通信/光模块 (optical)
+  { id: 'GLW',   ticker: 'GLW',       sector: 'optical',     fallback: 45 },
+  { id: 'COHR',  ticker: 'COHR',      sector: 'optical',     fallback: 15 },
+  { id: 'LITE',  ticker: 'LITE',      sector: 'optical',     fallback: 8  },
+  { id: 'AAOI',  ticker: 'AAOI',      sector: 'optical',     fallback: 1  },
+  { id: 'INNO',  ticker: '300308.SZ', sector: 'optical',     fallback: 20 },
+
+  // Level 2 — 封测/PCB (packaging)
+  { id: 'YIELD', ticker: '300502.SZ', sector: 'packaging',   fallback: 8  },
+
+  // Level 3 — 网络/系统 (networking)
+  { id: 'CIEN',  ticker: 'CIEN',      sector: 'networking',  fallback: 12 },
+  { id: 'CSCO',  ticker: 'CSCO',      sector: 'networking',  fallback: 200 },
+  { id: 'ERIC',  ticker: 'ERIC',      sector: 'networking',  fallback: 25 },
+  { id: 'NOK',   ticker: 'NOK',       sector: 'networking',  fallback: 25 },
+
+  // Level 3 — 整机 (hardware)
+  { id: 'SMCI',  ticker: 'SMCI',      sector: 'hardware',    fallback: 25 },
+
+  // Level 3 — 电池/储能 (battery)
+  { id: 'CATL',  ticker: '300750.SZ', sector: 'battery',     fallback: 200 },
+  { id: 'HNYE',  ticker: '301358.SZ', sector: 'battery',     fallback: 5   },
+  { id: 'FLNC',  ticker: 'FLNC',      sector: 'battery',     fallback: 3   },
+
+  // Level 4 — 云端/AI (cloud_ai)
+  { id: 'MSFT',  ticker: 'MSFT',  sector: 'cloud_ai',   fallback: 3200 },
+  { id: 'GOOGL', ticker: 'GOOGL', sector: 'cloud_ai',   fallback: 2000 },
+  { id: 'META',  ticker: 'META',  sector: 'cloud_ai',   fallback: 1500 },
+  { id: 'AMZN',  ticker: 'AMZN',  sector: 'cloud_ai',   fallback: 2200 },
+  { id: 'ORCL',  ticker: 'ORCL',  sector: 'cloud_ai',   fallback: 480  },
+  { id: 'IBM',   ticker: 'IBM',   sector: 'cloud_ai',   fallback: 200  },
+  { id: 'CRWV',  ticker: 'CRWV',  sector: 'cloud_ai',   fallback: 20   },
+  { id: 'NBIS',  ticker: 'NBIS',  sector: 'cloud_ai',   fallback: 5    },
+  { id: 'PATH',  ticker: 'PATH',  sector: 'cloud_ai',   fallback: 6    },
+  { id: 'NFLX',  ticker: 'NFLX',  sector: 'cloud_ai',   fallback: 300  },
+  { id: 'SNAP',  ticker: 'SNAP',  sector: 'cloud_ai',   fallback: 15   },
+
+  // Level 4 — 消费电子 (consumer_tech)
+  { id: 'AAPL',  ticker: 'AAPL',  sector: 'consumer_tech', fallback: 3500 },
+
+  // Level 4 — 汽车/EV (auto_ev)
+  { id: 'TSLA',  ticker: 'TSLA',     sector: 'auto_ev', fallback: 1200 },
+  { id: 'BYD',   ticker: '1211.HK',  sector: 'auto_ev', fallback: 100  },
+
+  // Level 4 — 中概互联网 (cn_tech)
+  { id: 'BABA',  ticker: 'BABA',    sector: 'cn_tech',  fallback: 250 },
+  { id: 'BIDU',  ticker: 'BIDU',    sector: 'cn_tech',  fallback: 30  },
+  { id: 'PDD',   ticker: 'PDD',     sector: 'cn_tech',  fallback: 150 },
+  { id: 'TCEHY', ticker: '0700.HK', sector: 'cn_tech',  fallback: 400 },
+
+  // Level 4 — 金融 / 医疗 / 其他 (fintech / healthcare / other)
+  { id: 'HOOD',  ticker: 'HOOD',   sector: 'fintech',   fallback: 30 },
+  { id: 'BRK',   ticker: 'BRK.A',  sector: 'fintech',   fallback: 1000 },
+  { id: 'IREN',  ticker: 'IREN',   sector: 'fintech',   fallback: 5 },  // 加密矿机
+  { id: 'TEM',   ticker: 'TEM',    sector: 'healthcare',fallback: 10 },
+  { id: 'INTU',  ticker: 'INTU',   sector: 'other',     fallback: 180 },
+];
+
+// ─── Fallback edges (API 失败时用) ────────────────────────────────
+const fallbackEdges = [
+  { from: 'ASML',  to: 'TSM',   relation: 'SUPPLIES', source_tier: 'sec_10k' },
+  { from: 'ASML',  to: 'SMSN',  relation: 'SUPPLIES', source_tier: 'sec_10k' },
+  { from: 'AMAT',  to: 'TSM',   relation: 'SUPPLIES', source_tier: 'kol' },
+  { from: 'LRCX',  to: 'TSM',   relation: 'SUPPLIES', source_tier: 'kol' },
+  { from: 'KLAC',  to: 'SMSN',  relation: 'CUSTOMER_OF', source_tier: 'sec_10k' },
+  { from: 'TSM',   to: 'NVDA',  relation: 'SUPPLIES', source_tier: 'sec_10k' },
+  { from: 'TSM',   to: 'AAPL',  relation: 'SUPPLIES', source_tier: 'kol' },
+  { from: 'HYNIX', to: 'NVDA',  relation: 'SUPPLIES', source_tier: 'sec_10k' },
+  { from: 'MU',    to: 'NVDA',  relation: 'SUPPLIES', source_tier: 'sec_10k' },
+];
+
+// ─── Relation style: color + arrows + width ───────────────────────
+const REL_STYLE = {
+  SUPPLIES:         { color: '#22c55e', label: '供货', arrows: true  },
+  CUSTOMER_OF:      { color: '#3b82f6', label: '客户', arrows: true  },
+  DEPENDS_ON:       { color: '#f97316', label: '依赖', arrows: true  },
+  BOTTLENECK_FOR:   { color: '#ef4444', label: '卡点', arrows: true  },
+  INVESTS_IN:       { color: '#eab308', label: '投资', arrows: true  },
+  BENEFITS_FROM:    { color: '#84cc16', label: '受益', arrows: true  },
+  HURT_BY:          { color: '#dc2626', label: '受损', arrows: true  },
+  DRIVES_DEMAND_FOR:{ color: '#0ea5e9', label: '拉需求', arrows: true },
+  COMPETES_WITH:    { color: '#a855f7', label: '竞争', arrows: false },
+  MENTIONS:         { color: '#64748b', label: '提及', arrows: false },
+};
+
+// ─── State ─────────────────────────────────────────────────────────
+const STATUS_EL = document.getElementById('load-status');
+const factsMap = {}; // ticker → { mcap_b, pe, price, currency, source }
+
+function fmtMcap(b) {
+  if (b == null || isNaN(b) || b <= 0) return '?';
+  if (b >= 1000) return `$${(b/1000).toFixed(2)}T`;
+  if (b >= 1) return `$${b.toFixed(1)}B`;
+  return `$${(b*1000).toFixed(0)}M`;
+}
+
+// circle shape 里圆的大小由文字撑起来 → 用 font.size 驱动圆大小
+// log10 范围: 0 (< $1B) → 3.7 ($5T). font.size 12→32.
+function fontSize(mcap_b) {
+  const mc = Math.max(mcap_b || 0, 0.3);
+  return Math.max(11, Math.round(9 + Math.log10(mc + 1) * 5.5));
+}
+
+// ─── Manual X per level (physics 只管 Y) ──────────────────────────
+const LEVEL_X = { 0: -900, 1: -450, 2: 0, 3: 450, 4: 900 };
+
+// initial Y: 同 level 内按 sector + mcap 排序, 均匀垂直分布
+function computeInitialY() {
+  const byLevel = { 0: [], 1: [], 2: [], 3: [], 4: [] };
+  rawNodes.forEach(n => {
+    const lvl = (SECTOR[n.sector] || SECTOR.other).level;
+    byLevel[lvl].push(n);
+  });
+  const initY = {};
+  Object.keys(byLevel).forEach(lvl => {
+    const arr = byLevel[lvl];
+    // 排序: sector 优先 (让同 sector 挨着), 同 sector 内 mcap 降序
+    arr.sort((a, b) => {
+      if (a.sector !== b.sector) return a.sector.localeCompare(b.sector);
+      const mA = (factsMap[a.ticker]?.mcap_b || a.fallback);
+      const mB = (factsMap[b.ticker]?.mcap_b || b.fallback);
+      return mB - mA;
+    });
+    const total = arr.length;
+    const spacing = 60;
+    const startY = -((total - 1) / 2) * spacing;
+    arr.forEach((n, i) => { initY[n.id] = startY + i * spacing; });
+  });
+  return initY;
+}
+
+function makeNode(n) {
+  const f = factsMap[n.ticker] || {};
+  const mcap = f.mcap_b != null ? f.mcap_b : n.fallback;
+  const mcapStr = fmtMcap(mcap);
+  const pe = f.pe != null ? f.pe.toFixed(1) : '?';
+  const price = f.price != null ? '$' + f.price.toFixed(2) : '?';
+  const change = f.price_change_pct != null
+    ? `${f.price_change_pct >= 0 ? '+' : ''}${f.price_change_pct.toFixed(2)}%`
+    : '';
+  const sec = SECTOR[n.sector] || SECTOR.other;
+  const title = `${n.id} · ${n.ticker}
+Layer L${sec.level}: ${sec.label}
+Industry: ${f.industry || '?'}
+Market Cap: ${mcapStr}
+Price: ${price} ${change}
+PE: ${pe}
+(${f.source || 'fallback'})`;
+  return {
+    id: n.id,
+    label: n.id,
+    title,
+    // 初始位置留空: 默认物理模式让 solver 自己排, 稳定后关物理
+    color: {
+      background: sec.color,
+      border: '#0a0e1a',
+      highlight: { background: sec.color, border: '#f97316' },
+      hover: { background: sec.color, border: '#eab308' },
+    },
+    font: {
+      color: '#f8fafc',
+      size: fontSize(mcap),
+      face: '-apple-system, "SF Pro Display", sans-serif',
+      bold: '700',
+      strokeWidth: 0,
+      align: 'center',
+    },
+  };
+}
+
+window._initialY = computeInitialY();
+
+const nodes = new vis.DataSet(rawNodes.map(makeNode));
+const edges = new vis.DataSet();  // 稍后由 loadKgEdges() 填充
+
+// ticker → nodeId 映射 (API 返 ticker, vis 用 nodeId)
+const tickerToNodeId = {};
+for (const n of rawNodes) tickerToNodeId[n.ticker] = n.id;
+
+let allEdgeData = [];  // 原始 KG edges (全集, 供 filter)
+let edgeSourceFilter = 'all';  // all / sec_10k / kol
+
+function makeEdgeDef(e, i) {
+  const style = REL_STYLE[e.relation] || REL_STYLE.MENTIONS;
+  const isSec = e.source_tier === 'sec_10k';
+  return {
+    id: `e${i}`,
+    from: e.from_node,
+    to: e.to_node,
+    title: `${e.from_node} -${style.label}-> ${e.to_node}
+Source: ${isSec ? 'SEC 10-K 验证 ✓' : 'KOL 说'} · conf ${e.confidence?.toFixed(2) || '?'}
+${e.evidence ? '\n"' + e.evidence.slice(0, 200) + (e.evidence.length > 200 ? '..."' : '"') : ''}`,
+    arrows: style.arrows
+      ? { to: { enabled: true, scaleFactor: 0.55 } }
+      : { to: { enabled: false } },
+    color: {
+      color: style.color,
+      highlight: '#f97316',
+      hover: '#eab308',
+      opacity: isSec ? 0.9 : 0.4,
+    },
+    width: isSec ? 2.4 : 1,
+    dashes: !isSec,
+    smooth: { enabled: true, type: 'curvedCW', roundness: 0.12 + (i % 6) * 0.03 },
+  };
+}
+
+function rebuildEdges() {
+  edges.clear();
+  const items = allEdgeData
+    .filter(e => edgeSourceFilter === 'all' || e.source_tier === edgeSourceFilter)
+    .map(makeEdgeDef);
+  edges.add(items);
+}
+
+const container = document.getElementById('chart');
+const data = { nodes, edges };
+
+const baseOptions = {
+  interaction: {
+    hover: true,
+    tooltipDelay: 100,
+    dragNodes: false,        // 🔒 禁止拖节点
+    dragView: false,         // 🔒 禁止拖画布
+    zoomView: false,         // 🔒 禁止滚轮缩放
+    selectable: true,        // 保留点选高亮
+    hoverConnectedEdges: true,
+  },
+  nodes: {
+    shape: 'circle',
+    borderWidth: 2.5,
+    shadow: { enabled: true, color: 'rgba(0,0,0,0.5)', size: 8 },
+    margin: 12,
+  },
+  edges: {
+    smooth: { enabled: true, type: 'curvedCW', roundness: 0.12 },
+  },
+};
+
+// 默认: 全自由物理力导向, 稳定后自动关物理 → 节点冻结在 solver 排好的位置
+const initialOptions = {
+  ...baseOptions,
+  layout: { hierarchical: false, improvedLayout: false },
+  physics: {
+    enabled: true,
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: {
+      gravitationalConstant: -80,
+      centralGravity: 0.005,
+      springLength: 120,
+      springConstant: 0.15,
+      damping: 0.6,
+      avoidOverlap: 1.0,
+    },
+    stabilization: { iterations: 500, updateInterval: 25, fit: true },
+    minVelocity: 0.5,
+    timestep: 0.4,
+  },
+};
+
+let network = new vis.Network(container, data, initialOptions);
+
+// 稳定后关物理 (避免持续飘)
+network.once('stabilizationIterationsDone', () => {
+  network.setOptions({ physics: { enabled: false } });
+});
+
+// 渲染 legend (从 SECTOR 里按 level 分组)
+function renderLegend() {
+  const byLevel = {};
+  for (const key in SECTOR) {
+    const s = SECTOR[key];
+    (byLevel[s.level] = byLevel[s.level] || []).push({ key, ...s });
+  }
+  const el = document.getElementById('legend-items');
+  el.innerHTML = '';
+  Object.keys(byLevel).sort().forEach(lvl => {
+    const row = document.createElement('div');
+    row.style.marginBottom = '3px';
+    row.innerHTML = `<span style="color:#64748b;font-size:10px;">L${lvl}</span>` +
+      byLevel[lvl].map(s => `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${s.color};margin:0 4px 0 6px;vertical-align:middle;"></span>${s.label}`).join('');
+    el.appendChild(row);
+  });
+}
+renderLegend();
+
+// 布局切换
+document.querySelectorAll('.chip[data-layout]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip[data-layout]').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+
+    const mode = chip.dataset.layout;
+    if (mode === 'physics') {
+      // 全自由物理 (无 L→R 约束) — 松开 fixed.x, 稳定后自动关物理
+      const unfixed = rawNodes.map(n => ({ id: n.id, fixed: { x: false, y: false } }));
+      nodes.update(unfixed);
+      network.setOptions({
+        layout: { hierarchical: false, improvedLayout: false },
+        physics: { enabled: true, solver: 'forceAtlas2Based',
+          forceAtlas2Based: { gravitationalConstant: -80, centralGravity: 0.005,
+            springLength: 120, springConstant: 0.15, damping: 0.6, avoidOverlap: 1.0 },
+          stabilization: { iterations: 500, updateInterval: 25, fit: true },
+          minVelocity: 0.5, timestep: 0.4 },
+      });
+      network.once('stabilizationIterationsDone', () => {
+        network.setOptions({ physics: { enabled: false } });
+        // 保持可拖动 (fixed: false), 但 physics 关了 → 拖谁只动谁, 不会推别的
+      });
+    } else if (mode === 'hier-lr') {
+      // L→R 分层: X 锁死, physics 排 Y, 稳定后关物理
+      const fixed = rawNodes.map(n => {
+        const lvl = (SECTOR[n.sector] || SECTOR.other).level;
+        return { id: n.id, x: LEVEL_X[lvl], fixed: { x: true, y: false } };
+      });
+      nodes.update(fixed);
+      network.setOptions({
+        layout: { hierarchical: false, improvedLayout: false },
+        physics: { enabled: true, solver: 'forceAtlas2Based',
+          forceAtlas2Based: { gravitationalConstant: -80, centralGravity: 0.005,
+            springLength: 90, springConstant: 0.15, damping: 0.5, avoidOverlap: 1.0 },
+          stabilization: { iterations: 400 } },
+      });
+      network.once('stabilizationIterationsDone', () => {
+        network.setOptions({ physics: { enabled: false } });
+      });
+    } else if (mode === 'hier-tb') {
+      // 上→下: Y 锁死, X 由 physics 排
+      const LEVEL_Y = { 0: -600, 1: -300, 2: 0, 3: 300, 4: 600 };
+      const fixed = rawNodes.map(n => {
+        const lvl = (SECTOR[n.sector] || SECTOR.other).level;
+        return { id: n.id, y: LEVEL_Y[lvl], x: 0, fixed: { x: false, y: true } };
+      });
+      nodes.update(fixed);
+      network.setOptions({
+        layout: { hierarchical: false, improvedLayout: false },
+        physics: { enabled: true, solver: 'forceAtlas2Based',
+          forceAtlas2Based: { gravitationalConstant: -80, centralGravity: 0.005,
+            springLength: 90, springConstant: 0.15, damping: 0.5, avoidOverlap: 1.0 },
+          stabilization: { iterations: 400 } },
+      });
+      network.once('stabilizationIterationsDone', () => {
+        network.setOptions({ physics: { enabled: false } });
+      });
+    }
+  });
+});
+
+// ─── Alpha-lab API loaders ────────────────────────────────────────
+const API = 'https://api.alpha-lab.work';
+
+async function loadFacts() {
+  try {
+    const res = await fetch(`${API}/api/v1/facts?limit=200`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    const wanted = new Set(rawNodes.map(n => n.ticker));
+    let matched = 0;
+    for (const f of (j.facts || [])) {
+      if (!wanted.has(f.ticker)) continue;
+      const mcap_usd = f.market_cap_usd;
+      const mcap_native = f.market_cap;
+      let mcap_b;
+      if (mcap_usd) mcap_b = mcap_usd / 1e9;
+      else if (mcap_native) {
+        const fx = { KRW: 0.00075, CNY: 0.14, HKD: 0.13, TWD: 0.032, EUR: 1.1, GBP: 1.28 };
+        mcap_b = mcap_native * (fx[f.currency] || 1) / 1e9;
+      }
+      if (mcap_b && mcap_b > 0) {
+        factsMap[f.ticker] = {
+          mcap_b,
+          pe: f.trailing_pe,
+          price: f.price,
+          price_change_pct: f.price_change_pct,
+          currency: f.currency,
+          industry: f.industry,
+          source: mcap_usd ? 'yfinance' : `yf → USD (${f.currency} FX)`,
+        };
+        matched++;
+      }
+    }
+    nodes.update(rawNodes.map(makeNode));
+    return { matched, total: rawNodes.length };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+async function loadKgEdges() {
+  const relations = 'SUPPLIES,CUSTOMER_OF,DEPENDS_ON,BOTTLENECK_FOR,INVESTS_IN,BENEFITS_FROM,HURT_BY,DRIVES_DEMAND_FOR,COMPETES_WITH';
+  try {
+    const res = await fetch(`${API}/api/v1/kg/graph?relation_types=${relations}&source_tiers=sec_10k,kol&min_confidence=0.6`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    // API 里 from/to 是 ticker; 转成 node id
+    allEdgeData = (j.edges || [])
+      .map(e => {
+        const from_node = tickerToNodeId[e.from];
+        const to_node = tickerToNodeId[e.to];
+        if (!from_node || !to_node) return null;  // 两端都必须在 55 家里
+        return { ...e, from_node, to_node };
+      })
+      .filter(Boolean);
+    rebuildEdges();
+    return { total: allEdgeData.length,
+             sec: allEdgeData.filter(e => e.source_tier === 'sec_10k').length,
+             kol: allEdgeData.filter(e => e.source_tier === 'kol').length };
+  } catch (e) {
+    // Fallback: 用硬编码
+    allEdgeData = fallbackEdges.map(fe => ({
+      ...fe,
+      from_node: tickerToNodeId[fe.from] || fe.from,
+      to_node: tickerToNodeId[fe.to] || fe.to,
+      confidence: 0.9,
+      evidence: '(fallback)',
+    }));
+    rebuildEdges();
+    return { error: e.message, fallback: allEdgeData.length };
+  }
+}
+
+// 边 source filter chip
+document.querySelectorAll('.chip[data-source]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip[data-source]').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    edgeSourceFilter = chip.dataset.source;
+    rebuildEdges();
+  });
+});
+
+// 主加载
+(async function () {
+  const [facts, kg] = await Promise.all([loadFacts(), loadKgEdges()]);
+  const parts = [];
+  if (facts.error) parts.push(`⚠️ facts: ${facts.error}`);
+  else parts.push(`✓ 市值 ${facts.matched}/${facts.total}`);
+  if (kg.error) parts.push(`⚠️ KG: ${kg.error} (fallback ${kg.fallback || 0})`);
+  else parts.push(`✓ ${kg.total} 关系 (SEC ${kg.sec} · KOL ${kg.kol})`);
+  STATUS_EL.textContent = parts.join(' · ');
+  STATUS_EL.style.color = (facts.error || kg.error) ? '#ef4444' : '#22c55e';
+})();
+</script>
+
+</body>
+</html>
